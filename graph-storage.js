@@ -1,19 +1,18 @@
 // Gestion Loyers — stockage des données dans OneDrive
-// Écrit dans le dossier PARTAGÉ "Immobilier 2025-2026" (le même que VéroS utilise),
-// pour que Gérard, Véronique et son fils voient tous les mêmes données,
-// quel que soit le compte Microsoft avec lequel chacun se connecte.
+// Écrit dans un sous-dossier dédié "GESTION-LOYERS", à l'intérieur du dossier
+// PARTAGÉ "Immobilier 2025-2026" (le même que VéroS utilise) — jamais à la racine
+// directe, pour éviter tout risque de suppression accidentelle du fichier.
 //
-// ATTENTION (même mise en garde que pour VéroS) : le nom de ce dossier peut changer
-// chaque année. S'il est renommé, changer DOSSIER_PARTAGE ci-dessous.
+// ATTENTION (même mise en garde que pour VéroS) : le nom du dossier partagé peut
+// changer chaque année. S'il est renommé, changer DOSSIER_RACINE_PARTAGE ci-dessous.
 
-const DOSSIER_PARTAGE = "Immobilier 2025-2026";
+const DOSSIER_RACINE_PARTAGE = "Immobilier 2025-2026";
+const SOUS_DOSSIER = "GESTION-LOYERS";
 const NOM_FICHIER_DONNEES = "gestion-loyers-data.json";
 const GRAPH_BASE = "https://graph.microsoft.com/v1.0";
 
-function cheminGraphEncode() {
-  // encode chaque segment du chemin (espaces, accents...) sans toucher aux séparateurs
-  const segments = `${DOSSIER_PARTAGE}/${NOM_FICHIER_DONNEES}`.split('/').map(encodeURIComponent);
-  return segments.join('/');
+function encoderChemin(chemin) {
+  return chemin.split('/').map(encodeURIComponent).join('/');
 }
 
 async function appelGraph(chemin, options = {}) {
@@ -38,8 +37,37 @@ async function detailErreur(res) {
   }
 }
 
+async function assurerSousDossier() {
+  const cheminDossier = encoderChemin(`${DOSSIER_RACINE_PARTAGE}/${SOUS_DOSSIER}`);
+  const verif = await appelGraph(`/me/drive/root:/${cheminDossier}`);
+  if (verif.ok) return; // le sous-dossier existe déjà
+
+  if (verif.status !== 404) {
+    throw new Error(`Vérification du sous-dossier : ${await detailErreur(verif)}`);
+  }
+
+  // Le sous-dossier n'existe pas : on le crée dans le dossier racine partagé
+  const cheminRacine = encoderChemin(DOSSIER_RACINE_PARTAGE);
+  const creation = await appelGraph(`/me/drive/root:/${cheminRacine}:/children`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      name: SOUS_DOSSIER,
+      folder: {},
+      "@microsoft.graph.conflictBehavior": "rename"
+    })
+  });
+  if (!creation.ok) {
+    throw new Error(`Création du sous-dossier : ${await detailErreur(creation)}`);
+  }
+}
+
+function cheminFichier() {
+  return encoderChemin(`${DOSSIER_RACINE_PARTAGE}/${SOUS_DOSSIER}/${NOM_FICHIER_DONNEES}`);
+}
+
 async function chargerDonneesOneDrive() {
-  const res = await appelGraph(`/me/drive/root:/${cheminGraphEncode()}:/content`);
+  const res = await appelGraph(`/me/drive/root:/${cheminFichier()}:/content`);
   if (res.status === 404) {
     return null; // pas encore de fichier — première utilisation
   }
@@ -50,7 +78,8 @@ async function chargerDonneesOneDrive() {
 }
 
 async function sauvegarderDonneesOneDrive(data) {
-  const res = await appelGraph(`/me/drive/root:/${cheminGraphEncode()}:/content`, {
+  await assurerSousDossier();
+  const res = await appelGraph(`/me/drive/root:/${cheminFichier()}:/content`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data, null, 2)

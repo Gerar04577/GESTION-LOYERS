@@ -61,6 +61,10 @@ function assuranceAVerifier(unite) {
   return new Date() > new Date(fin) && unite.assuranceStatut !== 'en_ordre';
 }
 
+function resteEnAttente(unite) {
+  return calculerLoyerCC(unite) - (unite.montantsVerses || 0);
+}
+
 function estEnRetard(unite) {
   if (!unite.prochainPaiement) return false;
   const echeance = new Date(unite.prochainPaiement);
@@ -240,12 +244,70 @@ function trouverUnite(uniteId) {
   return null;
 }
 
-function supprimerUnite(uniteId) {
-  if (!confirm('Supprimer cette unité locative ?')) return;
+function demanderSuppressionUnite(uniteId) {
+  const motif = prompt("Pourquoi supprimer cette unité ? (obligatoire, conservé comme trace)");
+  if (motif === null) return; // annulé
+  if (!motif.trim()) {
+    alert("Un commentaire est obligatoire pour supprimer une unité.");
+    return;
+  }
+  supprimerUnite(uniteId, motif.trim());
+}
+
+function supprimerUnite(uniteId, motif) {
   for (const immeuble of appData.immeubles) {
     const idx = immeuble.unites.findIndex(x => x.id === uniteId);
-    if (idx !== -1) { immeuble.unites.splice(idx, 1); break; }
+    if (idx !== -1) {
+      const copieUnite = JSON.parse(JSON.stringify(immeuble.unites[idx]));
+      journaliserSuppression('unite', copieUnite.designation, motif, copieUnite, immeuble.id);
+      immeuble.unites.splice(idx, 1);
+      break;
+    }
   }
+  sauvegarder();
+}
+
+function demanderSuppressionImmeuble(immeubleId) {
+  const immeuble = appData.immeubles.find(b => b.id === immeubleId);
+  if (!confirm(`Supprimer tout l'immeuble "${immeuble.nom}" et ses ${immeuble.unites.length} unité(s) ?`)) return;
+  const motif = prompt("Pourquoi supprimer cet immeuble ? (obligatoire, conservé comme trace)");
+  if (motif === null) return;
+  if (!motif.trim()) {
+    alert("Un commentaire est obligatoire pour supprimer un immeuble.");
+    return;
+  }
+  const copieImmeuble = JSON.parse(JSON.stringify(immeuble));
+  journaliserSuppression('immeuble', immeuble.nom, motif.trim(), copieImmeuble, null);
+  appData.immeubles = appData.immeubles.filter(b => b.id !== immeubleId);
+  sauvegarder();
+}
+
+function journaliserSuppression(type, nom, motif, donnees, immeubleId) {
+  if (!appData.journalSuppressions) appData.journalSuppressions = [];
+  appData.journalSuppressions.push({
+    type, nom, motif, donnees, immeubleId,
+    date: new Date().toISOString(),
+    mois: moisAffiche,
+    restaure: false
+  });
+}
+
+function restaurer(index) {
+  const entree = appData.journalSuppressions[index];
+  if (!entree || entree.restaure) return;
+  if (!confirm(`Restaurer "${entree.nom}" avec toutes ses données ?`)) return;
+
+  if (entree.type === 'unite') {
+    const immeuble = appData.immeubles.find(b => b.id === entree.immeubleId);
+    if (!immeuble) {
+      alert("L'immeuble d'origine n'existe plus — impossible de restaurer directement l'unité.");
+      return;
+    }
+    immeuble.unites.push(JSON.parse(JSON.stringify(entree.donnees)));
+  } else if (entree.type === 'immeuble') {
+    appData.immeubles.push(JSON.parse(JSON.stringify(entree.donnees)));
+  }
+  entree.restaure = true;
   sauvegarder();
 }
 
@@ -298,8 +360,15 @@ function enregistrerEdition(uniteId) {
   u.prochainPaiement = get('prochainPaiement') || null;
   u.typeUnite = get('typeUnite') || null;
   u.debutBail = get('debutBail') || null;
+  u.finBail = get('finBail') || null;
+  u.bailEnregistre = document.getElementById(`f-bailEnregistre-${uniteId}`).checked;
   u.assuranceDue = document.getElementById(`f-assuranceDue-${uniteId}`).checked;
   u.assuranceStatut = get('assuranceStatut') || null;
+  u.garantieMontant = parseFloat(get('garantieMontant')) || 0;
+  u.garantieForme = get('garantieForme') || null;
+  u.preuveGarantie = get('preuveGarantie') || '';
+  u.docAssurance = get('docAssurance') || '';
+  u.domiciliationOrdrePermanent = get('domiciliationOrdrePermanent') || '';
   u.commentaires = get('commentaires') || '';
   u.notesInternes = get('notesInternes') || '';
   u.aVentiler = false;
@@ -352,27 +421,48 @@ function formulaireEdition(immeuble, u) {
       ${immeuble.provisionCharges ? champ('Provision charges (€)', 'provisionCharges', u.id, u.provisionCharges, 'number') : ''}
       ${champ('Montants versés (€)', 'montantsVerses', u.id, u.montantsVerses, 'number')}
       ${champ('Prochain paiement', 'prochainPaiement', u.id, u.prochainPaiement, 'date')}
+      <div class="champ-lecture-seule">
+        <span>Reste en attente</span>
+        <span>${formatMontant(resteEnAttente(u))}</span>
+      </div>
+
+      <div class="section-titre">Bail</div>
+      ${champ('Début du bail', 'debutBail', u.id, u.debutBail, 'date')}
+      ${champ('Fin réelle du bail', 'finBail', u.id, u.finBail, 'date')}
+      ${champCheckbox('Bail enregistré', 'bailEnregistre', u.id, u.bailEnregistre)}
+
+      <div class="section-titre">Garantie locative</div>
+      ${champ('Montant garantie (€)', 'garantieMontant', u.id, u.garantieMontant, 'number')}
+      ${champSelect('Forme', 'garantieForme', u.id, u.garantieForme, [
+        ['especes', 'Espèces'], ['compte_bancaire', 'Compte bancaire bloqué']
+      ])}
+      ${champ('Preuve garantie (référence/note)', 'preuveGarantie', u.id, u.preuveGarantie)}
+
       <div class="section-titre">Assurance</div>
       ${champSelect("Type d'unité", 'typeUnite', u.id, u.typeUnite, [
         ['studio', 'Studio'], ['appartement', 'Appartement'], ['duplex', 'Duplex'],
         ['garage', 'Garage'], ['rdc_commercial', 'RDC commercial'], ['autre', 'Autre']
       ])}
-      ${champ('Début du bail', 'debutBail', u.id, u.debutBail, 'date')}
       <div class="champ champ-lecture-seule">
-        <span>Fin d'assurance (calculée)</span>
+        <span>Fin d'assurance (calculée, début+12 mois)</span>
         <span>${finAssurance ? finAssurance : '— (renseigner le début du bail)'}</span>
       </div>
       ${champCheckbox('Assurance due par le locataire', 'assuranceDue', u.id, assuranceDueVal)}
       ${champSelect('Statut assurance', 'assuranceStatut', u.id, u.assuranceStatut, [
         ['en_ordre', 'En ordre'], ['a_verifier', 'À vérifier']
       ])}
+      ${champ('Doc. assurance (référence/note)', 'docAssurance', u.id, u.docAssurance)}
+
+      <div class="section-titre">Domiciliation</div>
+      ${champ('Ordre permanent (référence/note)', 'domiciliationOrdrePermanent', u.id, u.domiciliationOrdrePermanent)}
+
       <div class="section-titre">Notes</div>
       ${champ('Commentaires', 'commentaires', u.id, u.commentaires)}
       ${champ('Notes internes', 'notesInternes', u.id, u.notesInternes)}
       <div class="edit-actions">
         <button class="btn btn-primary" onclick="enregistrerEdition('${u.id}')">Enregistrer</button>
         <button class="btn" onclick="fermerEdition()">Annuler</button>
-        <button class="btn btn-danger" onclick="supprimerUnite('${u.id}')">Supprimer l'unité</button>
+        <button class="btn btn-danger" onclick="demanderSuppressionUnite('${u.id}')">Supprimer l'unité</button>
       </div>
     </div>`;
 }
@@ -393,6 +483,7 @@ function render() {
 
   if (!appData.immeubles.length) {
     container.innerHTML = '<p class="placeholder-note">Aucune donnée pour ce mois.</p>';
+    afficherCorbeille();
     return;
   }
 
@@ -409,6 +500,12 @@ function render() {
     `;
     details.appendChild(summary);
 
+    const btnSupprimerImmeuble = document.createElement('button');
+    btnSupprimerImmeuble.className = 'btn btn-danger btn-supprimer-immeuble';
+    btnSupprimerImmeuble.textContent = "Supprimer l'immeuble";
+    btnSupprimerImmeuble.onclick = (e) => { e.preventDefault(); demanderSuppressionImmeuble(immeuble.id); };
+    details.appendChild(btnSupprimerImmeuble);
+
     for (const u of immeuble.unites) {
       if (u.id === uniteEnEdition) {
         const wrap = document.createElement('div');
@@ -419,6 +516,7 @@ function render() {
       const loyerCC = calculerLoyerCC(u);
       const retard = estEnRetard(u);
       const assuranceKO = assuranceAVerifier(u);
+      const attente = resteEnAttente(u);
       const row = document.createElement('div');
       row.className = 'unite-row unite-row-clickable';
       row.onclick = () => ouvrirEdition(u.id);
@@ -426,11 +524,12 @@ function render() {
         <div>
           <div class="designation">${u.designation}</div>
           <div class="locataire">${u.locataire || 'Logement libre'}</div>
+          ${attente > 0 ? `<div class="attente-unite">En attente : ${formatMontant(attente)}</div>` : ''}
         </div>
         <div class="montant">
           ${u.aVentiler ? '<span title="Loyer non encore ventilé">*</span> ' : ''}${formatMontant(loyerCC)}
           ${retard ? '<span class="badge retard">Retard</span>' : (u.locataire ? '<span class="badge ok">OK</span>' : '')}
-          ${assuranceKO ? '<span class="badge assurance">Assurance</span>' : ''}
+          ${assuranceKO ? '<span class="badge assurance">Assurance retard</span>' : ''}
         </div>
       `;
       details.appendChild(row);
@@ -444,6 +543,32 @@ function render() {
 
     container.appendChild(details);
   }
+
+  afficherCorbeille();
+}
+
+function afficherCorbeille() {
+  const zone = document.getElementById('corbeille-container');
+  const journal = appData.journalSuppressions || [];
+  const actifs = journal.map((e, i) => ({ ...e, index: i })).filter(e => !e.restaure);
+
+  if (!actifs.length) {
+    zone.innerHTML = '';
+    return;
+  }
+
+  zone.innerHTML = `<details class="immeuble-card corbeille">
+    <summary><span class="nom">🗑 Corbeille</span><span class="sous-total">${actifs.length} élément(s)</span></summary>
+    ${actifs.map(e => `
+      <div class="unite-row corbeille-row">
+        <div>
+          <div class="designation">${e.nom} <span class="corbeille-type">(${e.type})</span></div>
+          <div class="locataire">${e.motif} — ${new Date(e.date).toLocaleDateString('fr-BE')}</div>
+        </div>
+        <button class="btn btn-primary" onclick="restaurer(${e.index})">Restaurer</button>
+      </div>
+    `).join('')}
+  </details>`;
 }
 
 // ---------- Initialisation ----------

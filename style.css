@@ -320,3 +320,22 @@ main {
   border-style: dashed;
   color: var(--text-muted);
 }
+
+.btn-supprimer-immeuble {
+  width: calc(100% - 2rem);
+  margin: 0 1rem 0.7rem;
+  font-size: 0.75rem;
+  padding: 0.35rem 0.6rem;
+  opacity: 0.7;
+}
+.btn-supprimer-immeuble:hover { opacity: 1; }
+
+.attente-unite {
+  font-size: 0.72rem;
+  color: var(--alert-red);
+  margin-top: 0.1rem;
+}
+
+.corbeille { margin-top: 1.2rem; border-color: var(--paper-line); opacity: 0.9; }
+.corbeille-row { align-items: center; }
+.corbeille-type { color: var(--text-muted); font-size: 0.75rem; font-weight: normal; }

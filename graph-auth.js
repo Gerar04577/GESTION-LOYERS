@@ -2,13 +2,14 @@
 // Même approche que VéroS : aucune librairie, aucun CDN.
 //
 // Permissions demandées :
-//  - Files.Read                : lire les documents des locataires dans OneDrive (scan bail/EDLE/EDLS/Samadhi)
-//  - Files.ReadWrite.AppFolder : lire/écrire UNIQUEMENT le fichier de données de Gestion Loyers,
-//                                dans un dossier réservé à l'app (jamais les documents des locataires)
+//  - Files.Read      : lire les documents des locataires dans OneDrive (scan bail/EDLE/EDLS/Samadhi)
+//  - Files.ReadWrite : lire/écrire le fichier de données de Gestion Loyers dans le dossier
+//                      OneDrive PARTAGÉ (Gérard, Véronique, fils) — pas un dossier privé,
+//                      donc la permission ne peut plus être limitée à AppFolder
 
 const MSAL_CLIENT_ID = "42a7292b-76c0-404c-bb3a-fb4cb35d4694"; // inscription Entra "Gestion Loyers"
 const MSAL_REDIRECT_URI = window.location.origin + window.location.pathname.replace(/index\.html$/, "");
-const MSAL_SCOPES = "Files.Read Files.ReadWrite.AppFolder offline_access";
+const MSAL_SCOPES = "Files.Read Files.ReadWrite offline_access";
 const MSAL_AUTHORITY = "https://login.microsoftonline.com/consumers"; // comptes Microsoft personnels uniquement
 
 const TOKEN_STORAGE_KEY = "gestionLoyersMsalToken";

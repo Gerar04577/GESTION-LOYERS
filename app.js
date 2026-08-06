@@ -54,7 +54,7 @@ function sauvegarder() {
   if (typeof estConnecte === 'function' && estConnecte()) {
     sauvegarderDonneesOneDrive(appData).catch(err => {
       console.error("Échec sauvegarde OneDrive, gardé en local seulement", err);
-      afficherStatutSync("Sauvegarde OneDrive échouée — gardé en local", true);
+      afficherStatutSync("Erreur sauvegarde OneDrive : " + err.message, true);
     });
     afficherStatutSync("Sauvegardé dans OneDrive");
   }
@@ -254,7 +254,7 @@ async function init() {
       return;
     } catch (e) {
       console.error("Erreur OneDrive, bascule sur les données locales", e);
-      afficherStatutSync("OneDrive indisponible — mode local", true);
+      afficherStatutSync("Erreur OneDrive : " + e.message, true);
     }
   }
 

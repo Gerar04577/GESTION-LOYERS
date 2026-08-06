@@ -7,7 +7,7 @@ const GRAPH_BASE = "https://graph.microsoft.com/v1.0";
 
 async function appelGraph(chemin, options = {}) {
   const token = await obtenirJetonValide();
-  if (!token) throw new Error("Non connecté à Microsoft Graph");
+  if (!token) throw new Error("Jeton Microsoft absent ou expiré (reconnexion nécessaire)");
   const res = await fetch(`${GRAPH_BASE}${chemin}`, {
     ...options,
     headers: {
@@ -18,13 +18,22 @@ async function appelGraph(chemin, options = {}) {
   return res;
 }
 
+async function detailErreur(res) {
+  try {
+    const texte = await res.text();
+    return `${res.status} ${res.statusText} — ${texte.slice(0, 300)}`;
+  } catch {
+    return `${res.status} ${res.statusText}`;
+  }
+}
+
 async function chargerDonneesOneDrive() {
   const res = await appelGraph(`/me/drive/special/approot:/${NOM_FICHIER_DONNEES}:/content`);
   if (res.status === 404) {
     return null; // pas encore de fichier — première utilisation
   }
   if (!res.ok) {
-    throw new Error(`Erreur lecture OneDrive : ${res.status}`);
+    throw new Error(`Lecture OneDrive : ${await detailErreur(res)}`);
   }
   return await res.json();
 }
@@ -36,7 +45,7 @@ async function sauvegarderDonneesOneDrive(data) {
     body: JSON.stringify(data, null, 2)
   });
   if (!res.ok) {
-    throw new Error(`Erreur écriture OneDrive : ${res.status}`);
+    throw new Error(`Écriture OneDrive : ${await detailErreur(res)}`);
   }
   return true;
 }

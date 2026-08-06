@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Gestion Loyers</title>
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#1f2e28">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="app-header">
+  <h1>Gestion Loyers</h1>
+  <div class="subtitle"><span class="scan-dot"></span> <span id="sync-status">Données réelles extraites du fichier — 50 unités, 7 immeubles</span></div>
+  <button id="connexion-onedrive" class="btn-connexion">Se connecter à OneDrive</button>
+</header>
+
+<main>
+
+  <div class="totaux-generaux">
+    <div class="bloc">
+      <div class="label">Loyers CC dus</div>
+      <div class="valeur" id="total-du">—</div>
+    </div>
+    <div class="bloc">
+      <div class="label">Versés</div>
+      <div class="valeur" id="total-verse">—</div>
+    </div>
+    <div class="bloc">
+      <div class="label">En attente</div>
+      <div class="valeur attente" id="total-attente">—</div>
+    </div>
+  </div>
+
+  <div id="immeubles-container">
+    <p class="placeholder-note">Chargement…</p>
+  </div>
+
+  <p class="placeholder-note">
+    * loyer pas encore ventilé en brut/charges/poubelles/internet — valeur reprise telle quelle de l'ancien fichier.<br>
+    Édition des champs, ajout/suppression de locataires et d'unités, scan OneDrive/VéroS : étapes suivantes.
+  </p>
+
+</main>
+
+<script src="graph-auth.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

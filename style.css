@@ -1,15 +1,18 @@
 :root {
-  --ink: #1f2e28;
-  --ink-light: #2c3f37;
-  --brass: #b8863b;
-  --brass-light: #d4a35f;
-  --paper: #faf9f6;
-  --paper-line: #e6e3da;
-  --text: #26312c;
-  --text-muted: #6b7570;
-  --alert-red: #b23a3a;
-  --alert-red-bg: #fbeaea;
-  --ok-green: #3a7a55;
+  --ink: #5f5770;
+  --ink-light: #756c8a;
+  --accent: #cf9a4e;
+  --accent-light: #e0b876;
+  --paper: #faf8f5;
+  --paper-line: #e8e3dc;
+  --text: #35313d;
+  --text-muted: #746e7d;
+  --alert-red: #b15e59;
+  --alert-red-bg: #f7ebea;
+  --ok-color: #4f7e8c;
+  --ok-bg: #e9f1f3;
+  --assurance-color: #8a6d9e;
+  --assurance-bg: #f1ebf5;
 
   --font-display: Georgia, "Iowan Old Style", "Palatino Linotype", serif;
   --font-body: -apple-system, system-ui, "Segoe UI", Roboto, sans-serif;
@@ -59,7 +62,7 @@ header.app-header .subtitle {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: var(--brass-light);
+  background: var(--accent-light);
   display: inline-block;
 }
 
@@ -75,6 +78,47 @@ header.app-header .subtitle {
   cursor: pointer;
 }
 .btn-connexion:hover { background: rgba(255,255,255,0.08); }
+
+.mois-nav {
+  margin-top: 0.75rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.9rem;
+}
+.btn-mois {
+  background: rgba(255,255,255,0.08);
+  border: 1px solid #4a5c52;
+  color: var(--paper);
+  width: 2rem;
+  height: 2rem;
+  border-radius: 50%;
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.btn-mois:hover { background: rgba(255,255,255,0.16); }
+.mois-actuel {
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  color: var(--paper);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 9rem;
+  justify-content: center;
+  text-transform: capitalize;
+}
+.badge-mois-courant {
+  font-family: var(--font-body);
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: var(--accent-light);
+  color: var(--ink);
+  padding: 0.12rem 0.4rem;
+  border-radius: 5px;
+}
 
 main {
   padding: 1rem 0.9rem;
@@ -106,7 +150,7 @@ main {
   font-size: 1.25rem;
   color: var(--paper);
 }
-.totaux-generaux .valeur.attente { color: var(--brass-light); }
+.totaux-generaux .valeur.attente { color: var(--accent-light); }
 
 .immeuble-card {
   background: white;
@@ -169,7 +213,8 @@ main {
   font-weight: 600;
 }
 .badge.retard { background: var(--alert-red-bg); color: var(--alert-red); }
-.badge.ok { background: #e8f3ec; color: var(--ok-green); }
+.badge.ok { background: var(--ok-bg); color: var(--ok-color); }
+.badge.assurance { background: var(--assurance-bg); color: var(--assurance-color); }
 
 .placeholder-note {
   text-align: center;
@@ -208,7 +253,7 @@ main {
   background: white;
 }
 .champ input:focus {
-  outline: 2px solid var(--brass-light);
+  outline: 2px solid var(--accent-light);
   outline-offset: 1px;
 }
 
@@ -218,6 +263,41 @@ main {
   margin-top: 0.4rem;
   flex-wrap: wrap;
 }
+
+.section-titre {
+  font-family: var(--font-display);
+  font-size: 0.85rem;
+  color: var(--ink);
+  margin-top: 0.3rem;
+  padding-top: 0.5rem;
+  border-top: 1px dashed var(--paper-line);
+}
+
+.champ select {
+  font-family: var(--font-body);
+  font-size: 0.95rem;
+  padding: 0.45rem 0.55rem;
+  border: 1px solid var(--paper-line);
+  border-radius: 6px;
+  color: var(--text);
+  background: white;
+}
+
+.champ-checkbox {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.5rem;
+}
+.champ-checkbox input { width: 1.1rem; height: 1.1rem; }
+.champ-checkbox span { color: var(--text); font-size: 0.9rem; }
+
+.champ-lecture-seule {
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 0.85rem;
+}
+.champ-lecture-seule span:last-child { color: var(--text-muted); }
 
 .btn {
   font-family: var(--font-body);

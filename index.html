@@ -14,8 +14,17 @@
 
 <header class="app-header">
   <h1>Gestion Loyers</h1>
-  <div class="subtitle"><span class="scan-dot"></span> <span id="sync-status">Données réelles extraites du fichier — 50 unités, 7 immeubles</span></div>
+  <div class="subtitle"><span class="scan-dot"></span> <span id="sync-status">Chargement…</span></div>
   <button id="connexion-onedrive" class="btn-connexion">Se connecter à OneDrive</button>
+
+  <div class="mois-nav">
+    <button id="mois-precedent" class="btn-mois" aria-label="Mois précédent">‹</button>
+    <span class="mois-actuel">
+      <span id="mois-label">—</span>
+      <span id="mois-courant-badge" class="badge-mois-courant">en cours</span>
+    </span>
+    <button id="mois-suivant" class="btn-mois" aria-label="Mois suivant">›</button>
+  </div>
 </header>
 
 <main>

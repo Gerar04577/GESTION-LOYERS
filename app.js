@@ -65,6 +65,18 @@ function resteEnAttente(unite) {
   return calculerLoyerCC(unite) - (unite.montantsVerses || 0);
 }
 
+function conflitPoubelles(u) {
+  if (u.poubellesStatut === 'ND' && !(u.poubelles > 0)) return 'Statut ND (doit payer) mais 0€ dans les charges';
+  if (u.poubellesStatut === 'D' && u.poubelles > 0) return 'Statut D (domicilié) mais montant facturé dans les charges';
+  return null;
+}
+
+function conflitInternet(u) {
+  if (u.internetStatut === 'oui' && !(u.internet > 0)) return 'Statut Oui (doit payer) mais 0€ dans les charges';
+  if (u.internetStatut === 'non' && u.internet > 0) return 'Statut Non mais montant facturé dans les charges';
+  return null;
+}
+
 function estEnRetard(unite) {
   if (!unite.prochainPaiement) return false;
   const echeance = new Date(unite.prochainPaiement);
@@ -151,6 +163,38 @@ function creerMoisDepuis(donneesPrecedentes) {
 async function chargerDonneesInitiales() {
   const res = await fetch('data.json');
   return await res.json();
+}
+
+async function reimporterVentilation() {
+  if (!confirm("Réimporter la ventilation loyer/charges/poubelles/internet depuis data.json dans le mois affiché ? (les locataires, versements et autres champs déjà saisis ne sont pas touchés)")) return;
+  const frais = await chargerDonneesInitiales();
+  const index = {};
+  for (const b of frais.immeubles) {
+    for (const u of b.unites) index[u.designation] = u;
+  }
+  let maj = 0;
+  for (const b of appData.immeubles) {
+    for (const u of b.unites) {
+      const source = index[u.designation];
+      if (!source) continue;
+      u.loyerBrut = source.loyerBrut;
+      u.charges = source.charges;
+      u.poubelles = source.poubelles;
+      u.internet = source.internet;
+      if (source.debutBail && !u.debutBail) u.debutBail = source.debutBail;
+      if (source.garantieMontant !== undefined) u.garantieMontant = source.garantieMontant;
+      if (source.garantieForme) u.garantieForme = source.garantieForme;
+      if (source.bailEnregistre !== undefined) u.bailEnregistre = source.bailEnregistre;
+      if (source.finBail) u.finBail = source.finBail;
+      if (source.preuveGarantie) u.preuveGarantie = source.preuveGarantie;
+      if (source.poubellesStatut) u.poubellesStatut = source.poubellesStatut;
+      if (source.internetStatut) u.internetStatut = source.internetStatut;
+      u.aVentiler = false;
+      maj++;
+    }
+  }
+  sauvegarder();
+  alert(`${maj} unité(s) mise(s) à jour avec la ventilation.`);
 }
 
 // ---------- Navigation entre mois ----------
@@ -353,6 +397,8 @@ function enregistrerEdition(uniteId) {
   u.charges = parseFloat(get('charges')) || 0;
   u.poubelles = parseFloat(get('poubelles')) || 0;
   u.internet = parseFloat(get('internet')) || 0;
+  u.poubellesStatut = get('poubellesStatut') || null;
+  u.internetStatut = get('internetStatut') || null;
   if (found.immeuble.provisionCharges) {
     u.provisionCharges = parseFloat(get('provisionCharges')) || 0;
   }
@@ -417,7 +463,15 @@ function formulaireEdition(immeuble, u) {
       ${champ('Loyer brut (€)', 'loyerBrut', u.id, u.loyerBrut, 'number')}
       ${champ('Charges (€)', 'charges', u.id, u.charges, 'number')}
       ${champ('Poubelles (€)', 'poubelles', u.id, u.poubelles, 'number')}
+      ${champSelect('Statut poubelles', 'poubellesStatut', u.id, u.poubellesStatut, [
+        ['ND', 'ND — non domicilié, il paie'], ['D', 'D — domicilié, il ne paie pas ici']
+      ])}
+      ${conflitPoubelles(u) ? `<div class="conflit-warning">⚠️ ${conflitPoubelles(u)}</div>` : ''}
       ${champ('Internet (€)', 'internet', u.id, u.internet, 'number')}
+      ${champSelect('Statut internet', 'internetStatut', u.id, u.internetStatut, [
+        ['oui', 'Oui — il paie'], ['non', 'Non — il ne paie pas']
+      ])}
+      ${conflitInternet(u) ? `<div class="conflit-warning">⚠️ ${conflitInternet(u)}</div>` : ''}
       ${immeuble.provisionCharges ? champ('Provision charges (€)', 'provisionCharges', u.id, u.provisionCharges, 'number') : ''}
       ${champ('Montants versés (€)', 'montantsVerses', u.id, u.montantsVerses, 'number')}
       ${champ('Prochain paiement', 'prochainPaiement', u.id, u.prochainPaiement, 'date')}
@@ -517,6 +571,7 @@ function render() {
       const retard = estEnRetard(u);
       const assuranceKO = assuranceAVerifier(u);
       const attente = resteEnAttente(u);
+      const conflit = conflitPoubelles(u) || conflitInternet(u);
       const row = document.createElement('div');
       row.className = 'unite-row unite-row-clickable';
       row.onclick = () => ouvrirEdition(u.id);
@@ -530,6 +585,7 @@ function render() {
           ${u.aVentiler ? '<span title="Loyer non encore ventilé">*</span> ' : ''}${formatMontant(loyerCC)}
           ${retard ? '<span class="badge retard">Retard</span>' : (u.locataire ? '<span class="badge ok">OK</span>' : '')}
           ${assuranceKO ? '<span class="badge assurance">Assurance retard</span>' : ''}
+          ${conflit ? '<span class="badge conflit" title="'+conflit+'">Conflit</span>' : ''}
         </div>
       `;
       details.appendChild(row);

@@ -339,3 +339,13 @@ main {
 .corbeille { margin-top: 1.2rem; border-color: var(--paper-line); opacity: 0.9; }
 .corbeille-row { align-items: center; }
 .corbeille-type { color: var(--text-muted); font-size: 0.75rem; font-weight: normal; }
+
+.conflit-warning {
+  font-size: 0.78rem;
+  color: var(--alert-red);
+  background: var(--alert-red-bg);
+  padding: 0.4rem 0.55rem;
+  border-radius: 6px;
+  margin-top: -0.3rem;
+}
+.badge.conflit { background: var(--alert-red-bg); color: var(--alert-red); }

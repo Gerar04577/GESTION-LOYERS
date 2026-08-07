@@ -243,7 +243,7 @@ async function chargerDonneesInitiales() {
   return await res.json();
 }
 
-const CHAMPS_PROTEGES_REIMPORT = ['id', 'montantsVerses', 'prochainPaiement', 'commentaires', 'notesInternes'];
+const CHAMPS_PROTEGES_REIMPORT = ['id', 'montantsVerses', 'commentaires', 'notesInternes'];
 
 async function reimporterVentilation() {
   if (!confirm("Réimporter TOUTES les données depuis data.json dans le mois affiché ? (montants versés, prochain paiement, commentaires et notes internes déjà saisis ce mois-ci ne sont pas touchés — tout le reste, y compris locataire et statut inoccupé, sera remplacé)")) return;

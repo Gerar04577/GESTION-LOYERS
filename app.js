@@ -46,8 +46,15 @@ function calculerLoyerCC(unite) {
 
 function calculerFinAssurance(unite) {
   if (!unite.debutBail) return null;
-  const d = new Date(unite.debutBail);
+  return calculerFinParDefaut(unite.debutBail);
+}
+
+function calculerFinParDefaut(dateDebut) {
+  if (!dateDebut) return null;
+  const d = new Date(dateDebut);
+  if (isNaN(d.getTime())) return null;
   d.setFullYear(d.getFullYear() + 1);
+  d.setDate(d.getDate() - 1);
   return d.toISOString().slice(0, 10);
 }
 
@@ -123,17 +130,74 @@ function sauvegarderLocal() {
   localStorage.setItem(STORAGE_KEY_INDEX, JSON.stringify([...idx].sort()));
 }
 
-function sauvegarder() {
+let sauvegardeEnCours = false;
+const CLE_DERNIERE_SAUVEGARDE = 'gestionLoyersDerniereSauvegarde';
+const CLE_DERNIER_ENVOI = 'gestionLoyersDernierEnvoi'; // ce qui a été tenté, pour vérif à la réouverture
+
+async function sauvegarder() {
   sauvegarderLocal();
-  if (typeof estConnecte === 'function' && estConnecte()) {
-    sauvegarderMoisOneDrive(moisAffiche, appData).catch(err => {
-      console.error("Échec sauvegarde OneDrive", err);
-      afficherStatutSync("Erreur sauvegarde OneDrive : " + err.message, true);
-    });
-    afficherStatutSync(`Sauvegardé — ${libelleMois(moisAffiche)}`);
-  }
   render();
+  if (typeof estConnecte === 'function' && estConnecte()) {
+    sauvegardeEnCours = true;
+    afficherStatutSync("Sauvegarde en cours… ne pas fermer l'app");
+    const tentative = JSON.stringify(appData);
+    localStorage.setItem(CLE_DERNIER_ENVOI, JSON.stringify({ mois: moisAffiche, contenu: tentative }));
+    try {
+      await sauvegarderMoisOneDrive(moisAffiche, appData);
+
+      const relu = await chargerMoisOneDrive(moisAffiche);
+      const identique = JSON.stringify(relu) === tentative;
+      if (!identique) {
+        throw new Error("Vérification échouée : le contenu relu ne correspond pas à ce qui a été envoyé");
+      }
+
+      const horodatage = new Date().toISOString();
+      localStorage.setItem(CLE_DERNIERE_SAUVEGARDE, horodatage);
+      localStorage.removeItem(CLE_DERNIER_ENVOI); // confirmé, plus besoin de vérifier au prochain démarrage
+      afficherDerniereSauvegarde(horodatage);
+      afficherStatutSync(`Sauvegardé et vérifié — ${libelleMois(moisAffiche)}`);
+    } catch (err) {
+      console.error("Échec sauvegarde OneDrive", err);
+      afficherStatutSync("⚠️ Sauvegarde OneDrive NON confirmée : " + err.message, true);
+    } finally {
+      sauvegardeEnCours = false;
+    }
+  }
 }
+
+async function verifierEnvoiInterrompu() {
+  const brut = localStorage.getItem(CLE_DERNIER_ENVOI);
+  if (!brut) return; // rien en attente, tout est déjà confirmé
+  const { mois, contenu } = JSON.parse(brut);
+  if (typeof estConnecte !== 'function' || !estConnecte()) return;
+  try {
+    const distant = await chargerMoisOneDrive(mois);
+    if (JSON.stringify(distant) === contenu) {
+      // en fait bien arrivé (keepalive a fonctionné) — on confirme après coup
+      localStorage.setItem(CLE_DERNIERE_SAUVEGARDE, new Date().toISOString());
+      localStorage.removeItem(CLE_DERNIER_ENVOI);
+      afficherDerniereSauvegarde(localStorage.getItem(CLE_DERNIERE_SAUVEGARDE));
+    } else {
+      afficherStatutSync(`⚠️ La dernière modification de ${libelleMois(mois)} n'a peut-être pas été sauvegardée — vérifie et resaisis si besoin`, true);
+    }
+  } catch (e) {
+    console.error("Vérification de reprise impossible", e);
+  }
+}
+
+function afficherDerniereSauvegarde(horodatageISO) {
+  const el = document.getElementById('derniere-sauvegarde');
+  if (!el) return;
+  const d = new Date(horodatageISO);
+  el.textContent = `Dernière sauvegarde OneDrive confirmée : ${d.toLocaleDateString('fr-BE')} à ${d.toLocaleTimeString('fr-BE', {hour:'2-digit', minute:'2-digit'})}`;
+}
+
+window.addEventListener('beforeunload', (e) => {
+  if (sauvegardeEnCours) {
+    e.preventDefault();
+    e.returnValue = '';
+  }
+});
 
 function afficherStatutSync(message, erreur = false) {
   const el = document.getElementById('sync-status');
@@ -389,6 +453,14 @@ function fermerEdition() {
   render();
 }
 
+function toutEnregistrer() {
+  if (uniteEnEdition) {
+    enregistrerEdition(uniteEnEdition); // commite d'abord le formulaire ouvert (appelle déjà sauvegarder())
+  } else {
+    sauvegarder();
+  }
+}
+
 function enregistrerEdition(uniteId) {
   const found = trouverUnite(uniteId);
   if (!found) return;
@@ -433,6 +505,14 @@ function champ(label, id, uniteId, value, type = 'text') {
     <label class="champ">
       <span>${label}</span>
       <input type="${type}" id="f-${id}-${uniteId}" value="${value ?? ''}">
+    </label>`;
+}
+
+function champTexteLong(label, id, uniteId, value) {
+  return `
+    <label class="champ">
+      <span>${label}</span>
+      <textarea id="f-${id}-${uniteId}" rows="3">${value ?? ''}</textarea>
     </label>`;
 }
 
@@ -488,7 +568,7 @@ function formulaireEdition(immeuble, u) {
 
       <div class="section-titre">Bail</div>
       ${champ('Début du bail', 'debutBail', u.id, u.debutBail, 'date')}
-      ${champ('Fin réelle du bail', 'finBail', u.id, u.finBail, 'date')}
+      ${champ('Fin réelle du bail', 'finBail', u.id, u.finBail || calculerFinParDefaut(u.debutBail) || '', 'date')}
       ${champCheckbox('Bail enregistré', 'bailEnregistre', u.id, u.bailEnregistre)}
 
       <div class="section-titre">Garantie locative</div>
@@ -517,7 +597,7 @@ function formulaireEdition(immeuble, u) {
       ${champ('Ordre permanent (référence/note)', 'domiciliationOrdrePermanent', u.id, u.domiciliationOrdrePermanent)}
 
       <div class="section-titre">Notes</div>
-      ${champ('Commentaires', 'commentaires', u.id, u.commentaires)}
+      ${champTexteLong('Commentaires', 'commentaires', u.id, u.commentaires)}
       ${champ('Notes internes', 'notesInternes', u.id, u.notesInternes)}
       <div class="edit-actions">
         <button class="btn btn-primary" onclick="enregistrerEdition('${u.id}')">Enregistrer</button>
@@ -570,7 +650,16 @@ function render() {
       if (u.id === uniteEnEdition) {
         const wrap = document.createElement('div');
         wrap.innerHTML = formulaireEdition(immeuble, u);
-        details.appendChild(wrap.firstElementChild);
+        const formEl = wrap.firstElementChild;
+        details.appendChild(formEl);
+
+        const champDebut = formEl.querySelector(`#f-debutBail-${u.id}`);
+        const champFin = formEl.querySelector(`#f-finBail-${u.id}`);
+        if (champDebut && champFin) {
+          champDebut.addEventListener('change', () => {
+            if (champDebut.value) champFin.value = calculerFinParDefaut(champDebut.value);
+          });
+        }
         continue;
       }
       const loyerCC = calculerLoyerCC(u);
@@ -647,7 +736,16 @@ async function init() {
   document.getElementById('mois-precedent').onclick = () => allerAuMois(moisPrecedent(moisAffiche));
   document.getElementById('mois-suivant').onclick = () => allerAuMois(moisSuivant(moisAffiche));
 
+  const derniere = localStorage.getItem(CLE_DERNIERE_SAUVEGARDE);
+  if (derniere) afficherDerniereSauvegarde(derniere);
+
   await chargerMoisCourant(true);
+  await verifierEnvoiInterrompu();
+
+  document.getElementById('alerte-enregistrement').style.display = 'block';
+  setInterval(() => {
+    document.getElementById('alerte-enregistrement').style.display = 'block';
+  }, 10 * 60 * 1000);
 }
 
 function mettreAJourBoutonConnexion() {

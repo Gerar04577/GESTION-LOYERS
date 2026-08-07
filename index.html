@@ -15,6 +15,7 @@
 <header class="app-header">
   <h1>Gestion Loyers</h1>
   <div class="subtitle"><span class="scan-dot"></span> <span id="sync-status">Chargement…</span></div>
+  <div id="derniere-sauvegarde" class="derniere-sauvegarde"></div>
   <button id="connexion-onedrive" class="btn-connexion">Se connecter à OneDrive</button>
   <button id="reimport-ventilation" class="btn-connexion" onclick="reimporterVentilation()">Réimporter la ventilation (une fois)</button>
 
@@ -25,6 +26,14 @@
       <span id="mois-courant-badge" class="badge-mois-courant">en cours</span>
     </span>
     <button id="mois-suivant" class="btn-mois" aria-label="Mois suivant">›</button>
+  </div>
+
+  <button id="tout-enregistrer" class="btn-tout-enregistrer" onclick="toutEnregistrer()">💾 Tout enregistrer maintenant</button>
+
+  <div id="alerte-enregistrement" class="alerte-enregistrement" style="display:none;">
+    ⚠️ N'OUBLIEZ PAS D'ENREGISTRER ⚠️<br>
+    Sans clic sur "Enregistrer" ou "Tout enregistrer", les données saisies peuvent être perdues.
+    <button onclick="document.getElementById('alerte-enregistrement').style.display='none'">Fermer</button>
   </div>
 </header>
 

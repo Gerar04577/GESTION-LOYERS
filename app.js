@@ -688,6 +688,80 @@ function filtrerRechercheDocuments(valeur) {
   render();
 }
 
+function basculerRecherche() {
+  const zone = document.getElementById('zone-recherche');
+  const ouvert = zone.style.display !== 'none';
+  zone.style.display = ouvert ? 'none' : 'block';
+  if (ouvert) {
+    document.getElementById('recherche-documents').value = '';
+    filtrerRechercheDocuments('');
+  } else {
+    document.getElementById('recherche-documents').focus();
+  }
+}
+
+function remplirAccesDirectUnites() {
+  const select = document.getElementById('acces-direct-unite');
+  select.innerHTML = '<option value="">Accès direct à un studio/appartement…</option>';
+  for (const b of appData.immeubles) {
+    const groupe = document.createElement('optgroup');
+    groupe.label = b.nom;
+    for (const u of b.unites) {
+      const opt = document.createElement('option');
+      opt.value = u.id;
+      opt.textContent = u.designation + (u.locataire ? ' — ' + u.locataire : '');
+      groupe.appendChild(opt);
+    }
+    select.appendChild(groupe);
+  }
+}
+
+function allerDirectementAUnite(uniteId) {
+  if (!uniteId) return;
+  const trouve = trouverUnite(uniteId);
+  if (!trouve) return;
+  immeublesOuverts.add(trouve.immeuble.id);
+  render();
+  document.getElementById('acces-direct-unite').value = '';
+  const el = document.getElementById('ligne-' + uniteId);
+  if (el) {
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    el.classList.add('unite-surlignee');
+    setTimeout(() => el.classList.remove('unite-surlignee'), 2000);
+  }
+}
+
+const LABELS_DOCUMENTS = { bail: 'Bail', edle: 'EDLE', edls: 'EDLS', avenant: 'Avenant', samadhi: 'Samadhi' };
+
+function statutDocumentsDetail(immeubleId, u) {
+  if (!u.locataire || u.inoccupe) return null;
+  const res = resultatsScanDocuments[u.id];
+  if (!res) return null;
+  if (res.erreur) return { erreur: res.erreur };
+  const lignes = [];
+  for (const type of ['bail', 'edle', 'edls', 'avenant', 'samadhi']) {
+    let requis = true;
+    if (type === 'avenant') requis = avenantRequis(immeubleId, u.locataire);
+    if (type === 'samadhi') requis = samadhiRequis(immeubleId, u.designation);
+    if (type === 'edls') requis = false; // jamais signalé manquant tant que locataire en place
+    const present = res.trouves.includes(type);
+    lignes.push({ type, label: LABELS_DOCUMENTS[type], present, requis });
+  }
+  return { lignes };
+}
+
+function rendreStatutDocumentsHTML(statut) {
+  if (!statut) return '';
+  if (statut.erreur) return `<div class="statut-documents statut-documents-erreur">⚠️ ${statut.erreur}</div>`;
+  return `<div class="statut-documents">${statut.lignes.map(l => {
+    let icone, classe;
+    if (l.present) { icone = '✓'; classe = 'doc-present'; }
+    else if (l.requis) { icone = '✗'; classe = 'doc-manquant'; }
+    else { icone = '—'; classe = 'doc-non-requis'; }
+    return `<span class="doc-item ${classe}"><span class="doc-icone">${icone}</span> ${l.label}</span>`;
+  }).join('')}</div>`;
+}
+
 function render() {
   document.getElementById('mois-label').textContent = libelleMois(moisAffiche);
   document.getElementById('mois-courant-badge').style.display = (moisAffiche === moisActuel()) ? 'inline' : 'none';
@@ -751,8 +825,9 @@ function render() {
       const assuranceKO = assuranceAVerifier(u);
       const attente = resteEnAttente(u);
       const conflit = conflitPoubelles(u) || conflitInternet(u);
-      const manquants = documentsManquants(immeuble.id, u);
+      const statutDocs = statutDocumentsDetail(immeuble.id, u);
       const row = document.createElement('div');
+      row.id = 'ligne-' + u.id;
       row.className = 'unite-row unite-row-clickable';
       row.onclick = () => ouvrirEdition(u.id);
       row.innerHTML = `
@@ -760,6 +835,7 @@ function render() {
           <div class="designation">${u.designation}</div>
           <div class="locataire">${u.locataire || 'Logement libre'}</div>
           ${attente > 0 ? `<div class="attente-unite">En attente : ${formatMontant(attente)}</div>` : ''}
+          ${rendreStatutDocumentsHTML(statutDocs)}
         </div>
         <div class="montant">
           ${u.aVentiler && !u.inoccupe ? '<span title="Loyer non encore ventilé">*</span> ' : ''}${formatMontant(loyerCC)}
@@ -769,7 +845,6 @@ function render() {
           ${!u.inoccupe && !retard && u.locataire ? '<span class="badge ok">OK</span>' : ''}
           ${!u.inoccupe && assuranceKO ? '<span class="badge assurance">Assurance retard</span>' : ''}
           ${!u.inoccupe && conflit ? '<span class="badge conflit" title="'+conflit+'">Conflit</span>' : ''}
-          ${manquants && manquants.length ? manquants.map(m => `<span class="badge document-manquant">${m} manquant</span>`).join('') : ''}
         </div>
       `;
       details.appendChild(row);
@@ -784,6 +859,7 @@ function render() {
     container.appendChild(details);
   }
 
+  remplirAccesDirectUnites();
   afficherCorbeille();
 }
 

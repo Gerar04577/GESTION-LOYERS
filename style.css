@@ -273,7 +273,7 @@ main {
   line-height: 1.5;
 }
 
-.unite-row-clickable { cursor: pointer; }
+.unite-row-clickable { cursor: pointer; scroll-margin-top: 1rem; }
 .unite-row-clickable:hover { background: #f7f5ef; }
 
 .edit-form {
@@ -476,6 +476,34 @@ main {
 .badge.conflit { background: var(--alert-red-bg); color: var(--alert-red); }
 .badge.inoccupe { background: #ece8e0; color: var(--text-muted); }
 .badge.document-manquant { background: #f1ebf5; color: #6b4d8a; margin-top: 0.15rem; display: inline-block; }
+
+.statut-documents {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.35rem;
+}
+.doc-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.72rem;
+  padding: 0.12rem 0.4rem;
+  border-radius: 5px;
+  background: var(--paper);
+}
+.doc-icone { font-weight: 700; }
+.doc-present { color: var(--ok-color); }
+.doc-present .doc-icone { color: var(--ok-color); }
+.doc-manquant { color: var(--alert-red); background: var(--alert-red-bg); }
+.doc-non-requis { color: var(--text-muted); opacity: 0.6; }
+.statut-documents-erreur { font-size: 0.72rem; color: var(--alert-red); margin-top: 0.3rem; }
+
+.unite-surlignee { animation: surlignage 2s ease; }
+@keyframes surlignage {
+  0% { background: var(--accent-light); }
+  100% { background: transparent; }
+}
 
 .champ-recherche-documents {
   display: block;

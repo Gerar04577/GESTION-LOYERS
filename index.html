@@ -62,10 +62,18 @@
 
   <div class="zone-gestion-immeubles">
     <button class="btn-connexion" onclick="basculerMenuGestionImmeubles()">Gérer les immeubles</button>
-    <button class="btn-connexion" onclick="lancerScanDocuments()">Vérifier documents (Bail/EDLE/EDLS/Avenant/Samadhi)</button>
+    <button class="btn-connexion" onclick="lancerScanDocuments()">Vérifier documents</button>
+    <button class="btn-connexion" onclick="basculerRecherche()">🔍 Rechercher</button>
     <div id="menu-gestion-immeubles" class="menu-gestion-immeubles" style="display:none;"></div>
     <div id="statut-scan-documents" class="derniere-sauvegarde"></div>
-    <input id="recherche-documents" class="champ-recherche-documents" type="text" placeholder="Rechercher par locataire ou studio…" oninput="filtrerRechercheDocuments(this.value)" style="display:none;">
+
+    <div id="zone-recherche" style="display:none;">
+      <input id="recherche-documents" class="champ-recherche-documents" type="text" placeholder="Rechercher par locataire ou studio…" oninput="filtrerRechercheDocuments(this.value)">
+    </div>
+
+    <select id="acces-direct-unite" class="champ-recherche-documents" onchange="allerDirectementAUnite(this.value)">
+      <option value="">Accès direct à un studio/appartement…</option>
+    </select>
   </div>
 
 </main>

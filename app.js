@@ -87,15 +87,25 @@ function conflitInternet(u) {
   return null;
 }
 
-function estEnRetard(unite) {
-  if (unite.inoccupe) return false;
-  if (!unite.prochainPaiement) return false;
+const JOURS_SEUIL_ORANGE = 2;
+const JOURS_SEUIL_ROUGE = 4;
+
+function calculerRetard(unite) {
+  if (unite.inoccupe) return null;
+  if (!unite.prochainPaiement) return null;
   const echeance = new Date(unite.prochainPaiement);
   const aujourdhui = new Date();
   const joursEcart = (aujourdhui - echeance) / (1000 * 60 * 60 * 24);
   const loyerCC = calculerLoyerCC(unite);
   const insuffisant = (unite.montantsVerses || 0) < loyerCC;
-  return joursEcart > JOURS_TOLERANCE_RETARD && insuffisant;
+  if (!insuffisant) return null;
+  if (joursEcart >= JOURS_SEUIL_ROUGE) return 'rouge';
+  if (joursEcart >= JOURS_SEUIL_ORANGE) return 'orange';
+  return null;
+}
+
+function estEnRetard(unite) {
+  return calculerRetard(unite) !== null;
 }
 
 function formatMontant(n) {
@@ -680,7 +690,7 @@ function render() {
         continue;
       }
       const loyerCC = calculerLoyerCC(u);
-      const retard = estEnRetard(u);
+      const retard = calculerRetard(u);
       const assuranceKO = assuranceAVerifier(u);
       const attente = resteEnAttente(u);
       const conflit = conflitPoubelles(u) || conflitInternet(u);
@@ -696,7 +706,8 @@ function render() {
         <div class="montant">
           ${u.aVentiler && !u.inoccupe ? '<span title="Loyer non encore ventilé">*</span> ' : ''}${formatMontant(loyerCC)}
           ${u.inoccupe ? '<span class="badge inoccupe">Inoccupé</span>' : ''}
-          ${!u.inoccupe && retard ? '<span class="badge retard">Retard</span>' : ''}
+          ${!u.inoccupe && retard === 'rouge' ? '<span class="badge retard-rouge">Retard 4j+</span>' : ''}
+          ${!u.inoccupe && retard === 'orange' ? '<span class="badge retard-orange">Retard 2j+</span>' : ''}
           ${!u.inoccupe && !retard && u.locataire ? '<span class="badge ok">OK</span>' : ''}
           ${!u.inoccupe && assuranceKO ? '<span class="badge assurance">Assurance retard</span>' : ''}
           ${!u.inoccupe && conflit ? '<span class="badge conflit" title="'+conflit+'">Conflit</span>' : ''}

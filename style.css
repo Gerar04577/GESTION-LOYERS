@@ -260,7 +260,8 @@ main {
   margin-left: 0.4rem;
   font-weight: 600;
 }
-.badge.retard { background: var(--alert-red-bg); color: var(--alert-red); }
+.badge.retard-rouge { background: var(--alert-red-bg); color: var(--alert-red); }
+.badge.retard-orange { background: #fdf0dc; color: #b3701f; }
 .badge.ok { background: var(--ok-bg); color: var(--ok-color); }
 .badge.assurance { background: var(--assurance-bg); color: var(--assurance-color); }
 

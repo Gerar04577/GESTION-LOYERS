@@ -379,9 +379,26 @@ function supprimerUnite(uniteId, motif) {
   sauvegarder();
 }
 
+function basculerMenuImmeuble(immeubleId) {
+  const menu = document.getElementById('menu-deroulant-' + immeubleId);
+  const ouvert = menu.style.display !== 'none';
+  document.querySelectorAll('.menu-deroulant-immeuble').forEach(m => m.style.display = 'none');
+  menu.style.display = ouvert ? 'none' : 'block';
+}
+
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.menu-immeuble')) {
+    document.querySelectorAll('.menu-deroulant-immeuble').forEach(m => m.style.display = 'none');
+  }
+});
+
 function demanderSuppressionImmeuble(immeubleId) {
   const immeuble = appData.immeubles.find(b => b.id === immeubleId);
-  if (!confirm(`Supprimer tout l'immeuble "${immeuble.nom}" et ses ${immeuble.unites.length} unité(s) ?`)) return;
+  document.querySelectorAll('.menu-deroulant-immeuble').forEach(m => m.style.display = 'none');
+
+  if (!confirm(`⚠️ PREMIÈRE CONFIRMATION ⚠️\n\nSupprimer tout l'immeuble "${immeuble.nom}" et ses ${immeuble.unites.length} unité(s) ?`)) return;
+  if (!confirm(`⚠️ DERNIÈRE CONFIRMATION ⚠️\n\nÊtes-vous VRAIMENT certain de vouloir supprimer "${immeuble.nom}" ? Cette action retire ${immeuble.unites.length} unité(s) (récupérable ensuite via la Corbeille).`)) return;
+
   const motif = prompt("Pourquoi supprimer cet immeuble ? (obligatoire, conservé comme trace)");
   if (motif === null) return;
   if (!motif.trim()) {
@@ -636,15 +653,22 @@ function render() {
     const summary = document.createElement('summary');
     summary.innerHTML = `
       <span class="nom">${immeuble.nom}</span>
-      <span class="sous-total">${formatMontant(t.du)} — ${immeuble.unites.length} unité(s)</span>
+      <span class="sous-total">
+        ${formatMontant(t.du)} — ${immeuble.unites.length} unité(s)
+        ${t.attente > 0 ? `<br><span class="attente-immeuble">En attente : ${formatMontant(t.attente)}</span>` : ''}
+      </span>
     `;
     details.appendChild(summary);
 
-    const btnSupprimerImmeuble = document.createElement('button');
-    btnSupprimerImmeuble.className = 'btn btn-danger btn-supprimer-immeuble';
-    btnSupprimerImmeuble.textContent = "Supprimer l'immeuble";
-    btnSupprimerImmeuble.onclick = (e) => { e.preventDefault(); demanderSuppressionImmeuble(immeuble.id); };
-    details.appendChild(btnSupprimerImmeuble);
+    const menuImmeuble = document.createElement('div');
+    menuImmeuble.className = 'menu-immeuble';
+    menuImmeuble.innerHTML = `
+      <button class="btn-menu-immeuble" onclick="basculerMenuImmeuble('${immeuble.id}')" aria-label="Options de l'immeuble">⋮</button>
+      <div class="menu-deroulant-immeuble" id="menu-deroulant-${immeuble.id}" style="display:none;">
+        <button class="option-danger" onclick="demanderSuppressionImmeuble('${immeuble.id}')">🗑 Supprimer l'immeuble</button>
+      </div>
+    `;
+    details.appendChild(menuImmeuble);
 
     for (const u of immeuble.unites) {
       if (u.id === uniteEnEdition) {

@@ -233,8 +233,10 @@ async function chargerDonneesInitiales() {
   return await res.json();
 }
 
+const CHAMPS_PROTEGES_REIMPORT = ['id', 'montantsVerses', 'prochainPaiement', 'commentaires', 'notesInternes'];
+
 async function reimporterVentilation() {
-  if (!confirm("Réimporter la ventilation loyer/charges/poubelles/internet depuis data.json dans le mois affiché ? (les locataires, versements et autres champs déjà saisis ne sont pas touchés)")) return;
+  if (!confirm("Réimporter TOUTES les données depuis data.json dans le mois affiché ? (montants versés, prochain paiement, commentaires et notes internes déjà saisis ce mois-ci ne sont pas touchés — tout le reste, y compris locataire et statut inoccupé, sera remplacé)")) return;
   const frais = await chargerDonneesInitiales();
   const index = {};
   for (const b of frais.immeubles) {
@@ -245,24 +247,15 @@ async function reimporterVentilation() {
     for (const u of b.unites) {
       const source = index[u.designation];
       if (!source) continue;
-      u.loyerBrut = source.loyerBrut;
-      u.charges = source.charges;
-      u.poubelles = source.poubelles;
-      u.internet = source.internet;
-      if (source.debutBail && !u.debutBail) u.debutBail = source.debutBail;
-      if (source.garantieMontant !== undefined) u.garantieMontant = source.garantieMontant;
-      if (source.garantieForme) u.garantieForme = source.garantieForme;
-      if (source.bailEnregistre !== undefined) u.bailEnregistre = source.bailEnregistre;
-      if (source.finBail) u.finBail = source.finBail;
-      if (source.preuveGarantie) u.preuveGarantie = source.preuveGarantie;
-      if (source.poubellesStatut) u.poubellesStatut = source.poubellesStatut;
-      if (source.internetStatut) u.internetStatut = source.internetStatut;
-      u.aVentiler = false;
+      for (const cle of Object.keys(source)) {
+        if (CHAMPS_PROTEGES_REIMPORT.includes(cle)) continue;
+        u[cle] = source[cle];
+      }
       maj++;
     }
   }
   sauvegarder();
-  alert(`${maj} unité(s) mise(s) à jour avec la ventilation.`);
+  alert(`${maj} unité(s) mise(s) à jour avec toutes les données (sauf versements/prochain paiement/notes déjà saisis ce mois-ci).`);
 }
 
 // ---------- Navigation entre mois ----------
@@ -379,25 +372,35 @@ function supprimerUnite(uniteId, motif) {
   sauvegarder();
 }
 
-function basculerMenuImmeuble(immeubleId) {
-  const menu = document.getElementById('menu-deroulant-' + immeubleId);
+function basculerMenuGestionImmeubles() {
+  const menu = document.getElementById('menu-gestion-immeubles');
   const ouvert = menu.style.display !== 'none';
-  document.querySelectorAll('.menu-deroulant-immeuble').forEach(m => m.style.display = 'none');
-  menu.style.display = ouvert ? 'none' : 'block';
+  if (ouvert) {
+    menu.style.display = 'none';
+    return;
+  }
+  menu.innerHTML = appData.immeubles.map(immeuble => `
+    <div class="ligne-gestion-immeuble">
+      <span>${immeuble.nom}</span>
+      <button class="option-danger" onclick="demanderSuppressionImmeuble('${immeuble.id}')">🗑 Supprimer</button>
+    </div>
+  `).join('');
+  menu.style.display = 'block';
 }
 
 document.addEventListener('click', (e) => {
-  if (!e.target.closest('.menu-immeuble')) {
-    document.querySelectorAll('.menu-deroulant-immeuble').forEach(m => m.style.display = 'none');
+  if (!e.target.closest('.zone-gestion-immeubles')) {
+    const menu = document.getElementById('menu-gestion-immeubles');
+    if (menu) menu.style.display = 'none';
   }
 });
 
 function demanderSuppressionImmeuble(immeubleId) {
   const immeuble = appData.immeubles.find(b => b.id === immeubleId);
-  document.querySelectorAll('.menu-deroulant-immeuble').forEach(m => m.style.display = 'none');
+  document.getElementById('menu-gestion-immeubles').style.display = 'none';
 
-  if (!confirm(`⚠️ PREMIÈRE CONFIRMATION ⚠️\n\nSupprimer tout l'immeuble "${immeuble.nom}" et ses ${immeuble.unites.length} unité(s) ?`)) return;
-  if (!confirm(`⚠️ DERNIÈRE CONFIRMATION ⚠️\n\nÊtes-vous VRAIMENT certain de vouloir supprimer "${immeuble.nom}" ? Cette action retire ${immeuble.unites.length} unité(s) (récupérable ensuite via la Corbeille).`)) return;
+  if (!confirm(`⚠️ PREMIÈRE MISE EN GARDE ⚠️\n\nSupprimer tout l'immeuble "${immeuble.nom}" et ses ${immeuble.unites.length} unité(s) ?`)) return;
+  if (!confirm(`⚠️ DEUXIÈME MISE EN GARDE ⚠️\n\nÊtes-vous VRAIMENT certain de vouloir supprimer "${immeuble.nom}" ? Cette action retire ${immeuble.unites.length} unité(s) (récupérable ensuite via la Corbeille).`)) return;
 
   const motif = prompt("Pourquoi supprimer cet immeuble ? (obligatoire, conservé comme trace)");
   if (motif === null) return;
@@ -659,16 +662,6 @@ function render() {
       </span>
     `;
     details.appendChild(summary);
-
-    const menuImmeuble = document.createElement('div');
-    menuImmeuble.className = 'menu-immeuble';
-    menuImmeuble.innerHTML = `
-      <button class="btn-menu-immeuble" onclick="basculerMenuImmeuble('${immeuble.id}')" aria-label="Options de l'immeuble">⋮</button>
-      <div class="menu-deroulant-immeuble" id="menu-deroulant-${immeuble.id}" style="display:none;">
-        <button class="option-danger" onclick="demanderSuppressionImmeuble('${immeuble.id}')">🗑 Supprimer l'immeuble</button>
-      </div>
-    `;
-    details.appendChild(menuImmeuble);
 
     for (const u of immeuble.unites) {
       if (u.id === uniteEnEdition) {

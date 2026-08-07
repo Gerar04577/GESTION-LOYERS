@@ -62,13 +62,17 @@
 
   <div class="zone-gestion-immeubles">
     <button class="btn-connexion" onclick="basculerMenuGestionImmeubles()">Gérer les immeubles</button>
+    <button class="btn-connexion" onclick="lancerScanDocuments()">Vérifier documents (Bail/EDLE/EDLS/Avenant/Samadhi)</button>
     <div id="menu-gestion-immeubles" class="menu-gestion-immeubles" style="display:none;"></div>
+    <div id="statut-scan-documents" class="derniere-sauvegarde"></div>
+    <input id="recherche-documents" class="champ-recherche-documents" type="text" placeholder="Rechercher par locataire ou studio…" oninput="filtrerRechercheDocuments(this.value)" style="display:none;">
   </div>
 
 </main>
 
 <script src="graph-auth.js"></script>
 <script src="graph-storage.js"></script>
+<script src="graph-veros-scan.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

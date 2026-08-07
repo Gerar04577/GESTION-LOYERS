@@ -475,3 +475,15 @@ main {
 }
 .badge.conflit { background: var(--alert-red-bg); color: var(--alert-red); }
 .badge.inoccupe { background: #ece8e0; color: var(--text-muted); }
+.badge.document-manquant { background: #f1ebf5; color: #6b4d8a; margin-top: 0.15rem; display: inline-block; }
+
+.champ-recherche-documents {
+  display: block;
+  width: 100%;
+  margin-top: 0.6rem;
+  padding: 0.5rem 0.7rem;
+  border-radius: 8px;
+  border: 1px solid var(--paper-line);
+  font-family: var(--font-body);
+  font-size: 0.9rem;
+}

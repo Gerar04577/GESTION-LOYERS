@@ -470,6 +470,7 @@ function ajouterUnite(immeubleId) {
 }
 
 let uniteEnEdition = null;
+let immeublesOuverts = new Set();
 
 function ouvrirEdition(uniteId) {
   uniteEnEdition = uniteId;
@@ -637,7 +638,55 @@ function formulaireEdition(immeuble, u) {
     </div>`;
 }
 
-// ---------- Rendu ----------
+// ---------- Scan documents VéroS (indépendant, redondant volontairement) ----------
+
+let resultatsScanDocuments = {}; // { uniteId: {trouves: [...]} ou {erreur: ...} }
+let filtreRechercheDocuments = '';
+
+function documentsManquants(immeubleId, u) {
+  if (!u.locataire || u.inoccupe) return [];
+  const res = resultatsScanDocuments[u.id];
+  if (!res || res.erreur) return null; // pas encore scanné ou erreur
+  const manquants = [];
+  if (!res.trouves.includes('bail')) manquants.push('Bail');
+  if (!res.trouves.includes('edle')) manquants.push('EDLE');
+  if (avenantRequis(immeubleId, u.locataire) && !res.trouves.includes('avenant')) manquants.push('Avenant');
+  if (samadhiRequis(immeubleId, u.designation) && !res.trouves.includes('samadhi')) manquants.push('Samadhi');
+  // EDLS volontairement non signalé comme manquant tant que le locataire est en place (comme VéroS)
+  return manquants;
+}
+
+async function lancerScanDocuments() {
+  if (typeof estConnecte !== 'function' || !estConnecte()) {
+    alert("Connecte-toi à OneDrive d'abord pour vérifier les documents.");
+    return;
+  }
+  const statut = document.getElementById('statut-scan-documents');
+  const unitesAScannaner = [];
+  for (const b of appData.immeubles) {
+    for (const u of b.unites) {
+      if (u.locataire && !u.inoccupe) unitesAScannaner.push({ immeubleId: b.id, u });
+    }
+  }
+  let fait = 0;
+  for (const { immeubleId, u } of unitesAScannaner) {
+    statut.textContent = `Vérification en cours… ${fait}/${unitesAScannaner.length}`;
+    try {
+      resultatsScanDocuments[u.id] = await scannerUnite(immeubleId, u.designation, u.locataire);
+    } catch (e) {
+      resultatsScanDocuments[u.id] = { erreur: e.message };
+    }
+    fait++;
+    render();
+  }
+  document.getElementById('recherche-documents').style.display = 'block';
+  statut.textContent = `Vérification terminée — ${fait} unité(s) contrôlée(s) (${new Date().toLocaleTimeString('fr-BE',{hour:'2-digit',minute:'2-digit'})})`;
+}
+
+function filtrerRechercheDocuments(valeur) {
+  filtreRechercheDocuments = normaliserNom(valeur);
+  render();
+}
 
 function render() {
   document.getElementById('mois-label').textContent = libelleMois(moisAffiche);
@@ -661,7 +710,11 @@ function render() {
     const t = calculerTotauxImmeuble(immeuble);
     const details = document.createElement('details');
     details.className = 'immeuble-card';
-    details.open = immeuble.unites.some(u => u.id === uniteEnEdition);
+    details.open = immeuble.unites.some(u => u.id === uniteEnEdition) || immeublesOuverts.has(immeuble.id) || !!filtreRechercheDocuments;
+    details.addEventListener('toggle', () => {
+      if (details.open) immeublesOuverts.add(immeuble.id);
+      else immeublesOuverts.delete(immeuble.id);
+    });
 
     const summary = document.createElement('summary');
     summary.innerHTML = `
@@ -674,6 +727,10 @@ function render() {
     details.appendChild(summary);
 
     for (const u of immeuble.unites) {
+      if (filtreRechercheDocuments) {
+        const cible = normaliserNom(u.designation + ' ' + (u.locataire || ''));
+        if (!cible.includes(filtreRechercheDocuments)) continue;
+      }
       if (u.id === uniteEnEdition) {
         const wrap = document.createElement('div');
         wrap.innerHTML = formulaireEdition(immeuble, u);
@@ -694,6 +751,7 @@ function render() {
       const assuranceKO = assuranceAVerifier(u);
       const attente = resteEnAttente(u);
       const conflit = conflitPoubelles(u) || conflitInternet(u);
+      const manquants = documentsManquants(immeuble.id, u);
       const row = document.createElement('div');
       row.className = 'unite-row unite-row-clickable';
       row.onclick = () => ouvrirEdition(u.id);
@@ -711,6 +769,7 @@ function render() {
           ${!u.inoccupe && !retard && u.locataire ? '<span class="badge ok">OK</span>' : ''}
           ${!u.inoccupe && assuranceKO ? '<span class="badge assurance">Assurance retard</span>' : ''}
           ${!u.inoccupe && conflit ? '<span class="badge conflit" title="'+conflit+'">Conflit</span>' : ''}
+          ${manquants && manquants.length ? manquants.map(m => `<span class="badge document-manquant">${m} manquant</span>`).join('') : ''}
         </div>
       `;
       details.appendChild(row);

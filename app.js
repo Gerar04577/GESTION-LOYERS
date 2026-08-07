@@ -35,6 +35,7 @@ function libelleMois(mois) {
 }
 
 function calculerLoyerCC(unite) {
+  if (unite.inoccupe) return 0;
   const brut = unite.loyerBrut || 0;
   const charges = unite.charges || 0;
   const poubelles = unite.poubelles || 0;
@@ -66,18 +67,21 @@ function resteEnAttente(unite) {
 }
 
 function conflitPoubelles(u) {
+  if (u.inoccupe) return null;
   if (u.poubellesStatut === 'ND' && !(u.poubelles > 0)) return 'Statut ND (doit payer) mais 0€ dans les charges';
   if (u.poubellesStatut === 'D' && u.poubelles > 0) return 'Statut D (domicilié) mais montant facturé dans les charges';
   return null;
 }
 
 function conflitInternet(u) {
+  if (u.inoccupe) return null;
   if (u.internetStatut === 'oui' && !(u.internet > 0)) return 'Statut Oui (doit payer) mais 0€ dans les charges';
   if (u.internetStatut === 'non' && u.internet > 0) return 'Statut Non mais montant facturé dans les charges';
   return null;
 }
 
 function estEnRetard(unite) {
+  if (unite.inoccupe) return false;
   if (!unite.prochainPaiement) return false;
   const echeance = new Date(unite.prochainPaiement);
   const aujourdhui = new Date();
@@ -393,6 +397,7 @@ function enregistrerEdition(uniteId) {
 
   u.designation = get('designation') || u.designation;
   u.locataire = get('locataire') || null;
+  u.inoccupe = document.getElementById(`f-inoccupe-${uniteId}`).checked;
   u.loyerBrut = parseFloat(get('loyerBrut')) || 0;
   u.charges = parseFloat(get('charges')) || 0;
   u.poubelles = parseFloat(get('poubelles')) || 0;
@@ -460,6 +465,7 @@ function formulaireEdition(immeuble, u) {
     <div class="edit-form" id="form-${u.id}">
       ${champ('Désignation', 'designation', u.id, u.designation)}
       ${champ('Locataire (vide = libre)', 'locataire', u.id, u.locataire)}
+      ${champCheckbox('Inoccupé ce mois (suspend le loyer attendu et les alertes)', 'inoccupe', u.id, u.inoccupe)}
       ${champ('Loyer brut (€)', 'loyerBrut', u.id, u.loyerBrut, 'number')}
       ${champ('Charges (€)', 'charges', u.id, u.charges, 'number')}
       ${champ('Poubelles (€)', 'poubelles', u.id, u.poubelles, 'number')}
@@ -582,10 +588,12 @@ function render() {
           ${attente > 0 ? `<div class="attente-unite">En attente : ${formatMontant(attente)}</div>` : ''}
         </div>
         <div class="montant">
-          ${u.aVentiler ? '<span title="Loyer non encore ventilé">*</span> ' : ''}${formatMontant(loyerCC)}
-          ${retard ? '<span class="badge retard">Retard</span>' : (u.locataire ? '<span class="badge ok">OK</span>' : '')}
-          ${assuranceKO ? '<span class="badge assurance">Assurance retard</span>' : ''}
-          ${conflit ? '<span class="badge conflit" title="'+conflit+'">Conflit</span>' : ''}
+          ${u.aVentiler && !u.inoccupe ? '<span title="Loyer non encore ventilé">*</span> ' : ''}${formatMontant(loyerCC)}
+          ${u.inoccupe ? '<span class="badge inoccupe">Inoccupé</span>' : ''}
+          ${!u.inoccupe && retard ? '<span class="badge retard">Retard</span>' : ''}
+          ${!u.inoccupe && !retard && u.locataire ? '<span class="badge ok">OK</span>' : ''}
+          ${!u.inoccupe && assuranceKO ? '<span class="badge assurance">Assurance retard</span>' : ''}
+          ${!u.inoccupe && conflit ? '<span class="badge conflit" title="'+conflit+'">Conflit</span>' : ''}
         </div>
       `;
       details.appendChild(row);

@@ -349,3 +349,4 @@ main {
   margin-top: -0.3rem;
 }
 .badge.conflit { background: var(--alert-red-bg); color: var(--alert-red); }
+.badge.inoccupe { background: #ece8e0; color: var(--text-muted); }

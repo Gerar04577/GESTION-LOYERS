@@ -14,6 +14,7 @@
 
 <header class="app-header">
   <h1>Gestion Loyers</h1>
+  <div class="version-app">v13</div>
   <div class="subtitle"><span class="scan-dot"></span> <span id="sync-status">Chargement…</span></div>
   <div id="derniere-sauvegarde" class="derniere-sauvegarde"></div>
   <button id="connexion-onedrive" class="btn-connexion">Se connecter à OneDrive</button>
@@ -65,6 +66,15 @@
       <button class="btn-connexion" onclick="retourVueLoyers()">← Retour aux loyers</button>
     </div>
     <div id="vue-documents-container"></div>
+    <div id="liste-manquants-container"></div>
+  </div>
+
+  <div id="vue-comparaison" style="display:none;">
+    <div class="entete-vue-documents">
+      <h2>Comparaison des noms de dossiers</h2>
+      <button class="btn-connexion" onclick="retourVueLoyers()">← Retour aux loyers</button>
+    </div>
+    <div id="vue-comparaison-container"></div>
   </div>
 
   <div id="corbeille-container"></div>
@@ -72,6 +82,7 @@
   <div class="zone-gestion-immeubles">
     <button class="btn-connexion" onclick="basculerMenuGestionImmeubles()">Gérer les immeubles</button>
     <button class="btn-connexion" onclick="lancerScanDocuments()">Vérifier documents</button>
+    <button class="btn-connexion" onclick="lancerComparaisonDossiers()">Comparer noms OneDrive</button>
     <div id="menu-gestion-immeubles" class="menu-gestion-immeubles" style="display:none;"></div>
     <div id="statut-scan-documents" class="derniere-sauvegarde"></div>
   </div>

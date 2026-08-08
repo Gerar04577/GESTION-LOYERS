@@ -58,17 +58,34 @@ function extraireNomUnite(designation, nomImmeubleAffiche) {
   return norm.split(' ').filter(mot => !motsImmeuble.includes(mot)).join(' ').trim();
 }
 
-async function trouverDossierUnite(dossierImmeubleEnfants, cheminImmeuble, nomUnite) {
+async function trouverDossierUnite(dossierImmeubleEnfants, cheminImmeuble, nomUnite, locataire) {
   const cibleTypeNum = extraireTypeEtNumero(nomUnite);
   if (!cibleTypeNum.type) return null;
-  for (const enfant of dossierImmeubleEnfants) {
-    if (!enfant.folder) continue;
-    const dossierTypeNum = extraireTypeEtNumero(enfant.name);
-    if (dossierTypeNum.type === cibleTypeNum.type && dossierTypeNum.num === cibleTypeNum.num) {
-      return enfant;
+  // "RDC" côté app est ambigu (peut être résidentiel ou commercial selon les cas comme PTG) :
+  // on élargit aux deux types réels possibles et on laisse le locataire départager
+  const typesAcceptes = cibleTypeNum.type === 'RDC' ? ['RDC', 'RDC_COMMERCIAL'] : [cibleTypeNum.type];
+  const candidats = dossierImmeubleEnfants.filter(enfant => {
+    if (!enfant.folder) return false;
+    const t = extraireTypeEtNumero(enfant.name);
+    return typesAcceptes.includes(t.type) && t.num === cibleTypeNum.num;
+  });
+  if (candidats.length <= 1) return candidats[0] || null;
+
+  // plusieurs dossiers du même type (ex. RDC résidentiel ET RDC commercial) :
+  // on départage via le nom du locataire déjà connu dans l'app
+  if (locataire) {
+    const motsLoc = normaliserNom(locataire).split(' ').filter(m => m.length >= 3);
+    for (const candidat of candidats) {
+      const cheminCandidat = `${cheminImmeuble}/${candidat.name}`;
+      const sousDossiers = await listerEnfants(cheminCandidat);
+      const correspond = sousDossiers.some(d => {
+        const nomD = normaliserNom(d.name);
+        return motsLoc.some(mot => nomD.includes(mot));
+      });
+      if (correspond) return candidat;
     }
   }
-  return null;
+  return candidats[0]; // repli si aucun locataire ne correspond
 }
 
 const TYPES_DOCUMENTS = {
@@ -95,7 +112,7 @@ async function scannerUnite(immeubleId, designation, locataire) {
   const cheminImmeuble = `${DOSSIER_RACINE_IMMEUBLES}/${nomOneDrive}`;
   const enfantsImmeuble = await listerEnfants(cheminImmeuble);
   const nomUnite = extraireNomUnite(designation, nomOneDrive); // pour affichage lisible seulement
-  const dossierUnite = await trouverDossierUnite(enfantsImmeuble, cheminImmeuble, designation);
+  const dossierUnite = await trouverDossierUnite(enfantsImmeuble, cheminImmeuble, designation, locataire);
   if (!dossierUnite) return { erreur: `Dossier unité "${nomUnite}" introuvable dans OneDrive` };
 
   const cheminUnite = `${cheminImmeuble}/${dossierUnite.name}`;

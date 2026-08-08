@@ -85,6 +85,13 @@ header.app-header .subtitle {
   margin-top: 0.3rem;
 }
 
+.version-app {
+  font-size: 0.68rem;
+  color: #8a8393;
+  margin-top: -0.3rem;
+  margin-bottom: 0.4rem;
+}
+
 .mois-nav {
   margin-top: 0.75rem;
   display: flex;
@@ -525,6 +532,29 @@ main {
   background: white;
 }
 .entete-vue-documents .btn-connexion:hover { background: var(--paper-line); }
+
+.table-comparaison {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+.table-comparaison th {
+  text-align: left;
+  padding: 0.5rem 0.9rem;
+  background: var(--paper);
+  color: var(--text-muted);
+  font-weight: 600;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+}
+.table-comparaison td {
+  padding: 0.45rem 0.9rem;
+  border-top: 1px solid var(--paper-line);
+}
+.table-comparaison tr.ligne-non-correspondante td {
+  background: var(--alert-red-bg);
+  color: var(--alert-red);
+}
 
 .champ-recherche-documents {
   display: block;

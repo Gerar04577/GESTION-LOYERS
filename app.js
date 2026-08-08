@@ -738,9 +738,121 @@ function rendreVueDocuments() {
   if (!container.children.length) {
     container.innerHTML = '<p class="placeholder-note">Aucune unité ne correspond.</p>';
   }
+
+  rendreListeManquants();
+}
+
+function collecterDocumentsManquants() {
+  const lignes = [];
+  for (const b of appData.immeubles) {
+    for (const u of b.unites) {
+      if (!u.locataire || u.inoccupe) continue;
+      const statut = statutDocumentsDetail(b.id, u);
+      if (!statut || statut.erreur) continue;
+      const manquants = statut.lignes.filter(l => l.requis && !l.present).map(l => l.label);
+      if (manquants.length) {
+        lignes.push({ immeuble: b.nom, unite: u.designation, locataire: u.locataire, manquants });
+      }
+    }
+  }
+  return lignes;
+}
+
+function rendreListeManquants() {
+  const container = document.getElementById('liste-manquants-container');
+  const lignes = collecterDocumentsManquants();
+  if (!lignes.length) {
+    container.innerHTML = '';
+    return;
+  }
+  container.innerHTML = `
+    <div class="entete-vue-documents" style="margin-top:1.2rem;">
+      <h2>Documents manquants (${lignes.length})</h2>
+      <button class="btn-connexion" onclick="telechargerListeManquants()">⬇ Télécharger (CSV)</button>
+    </div>
+    <table class="table-comparaison" style="max-width:720px;margin:0 auto;">
+      <thead><tr><th>Immeuble</th><th>Unité</th><th>Locataire</th><th>Manquant</th></tr></thead>
+      <tbody>
+        ${lignes.map(l => `<tr><td>${l.immeuble}</td><td>${l.unite}</td><td>${l.locataire}</td><td>${l.manquants.join(', ')}</td></tr>`).join('')}
+      </tbody>
+    </table>
+  `;
+}
+
+function telechargerListeManquants() {
+  const lignes = collecterDocumentsManquants();
+  const entete = 'Immeuble;Unite;Locataire;Documents manquants\n';
+  const corps = lignes.map(l =>
+    [l.immeuble, l.unite, l.locataire, l.manquants.join(', ')]
+      .map(champ => `"${String(champ).replace(/"/g, '""')}"`)
+      .join(';')
+  ).join('\n');
+  const contenu = '\uFEFF' + entete + corps; // BOM pour un bon affichage des accents dans Excel
+  const blob = new Blob([contenu], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `documents-manquants-${new Date().toISOString().slice(0,10)}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }
 
 const LABELS_DOCUMENTS = { bail: 'Bail', edle: 'EDLE', edls: 'EDLS', avenant: 'Avenant', samadhi: 'Samadhi' };
+
+async function lancerComparaisonDossiers() {
+  if (typeof estConnecte !== 'function' || !estConnecte()) {
+    alert("Connecte-toi à OneDrive d'abord.");
+    return;
+  }
+  document.getElementById('immeubles-container').style.display = 'none';
+  document.getElementById('vue-comparaison').style.display = 'block';
+  const container = document.getElementById('vue-comparaison-container');
+  container.innerHTML = '<p class="placeholder-note">Lecture de OneDrive en cours…</p>';
+
+  const resultatsParImmeuble = [];
+  for (const b of appData.immeubles) {
+    const nomOneDrive = DOSSIER_ONEDRIVE_PAR_IMMEUBLE[b.id];
+    let dossiersReels = [];
+    let erreur = null;
+    try {
+      const enfants = await listerEnfants(`${DOSSIER_RACINE_IMMEUBLES}/${nomOneDrive}`);
+      dossiersReels = enfants.filter(e => e.folder).map(e => e.name);
+    } catch (e) {
+      erreur = e.message;
+    }
+    resultatsParImmeuble.push({ immeuble: b, nomOneDrive, dossiersReels, erreur });
+  }
+
+  container.innerHTML = resultatsParImmeuble.map(r => {
+    const nomsAttendus = r.immeuble.unites.map(u => extraireNomUnite(u.designation, r.nomOneDrive));
+    const lignes = [];
+    const max = Math.max(nomsAttendus.length, r.dossiersReels.length);
+    for (let i = 0; i < max; i++) {
+      const attendu = nomsAttendus[i] || '';
+      const reel = r.dossiersReels[i] || '';
+      const correspond = attendu && r.dossiersReels.some(d => {
+        const a = extraireTypeEtNumero(attendu);
+        const b = extraireTypeEtNumero(d);
+        return a.type && a.type === b.type && a.num === b.num;
+      });
+      lignes.push(`<tr class="${attendu && !correspond ? 'ligne-non-correspondante' : ''}">
+        <td>${attendu || '—'}</td>
+        <td>${reel || '—'}</td>
+      </tr>`);
+    }
+    return `
+      <details class="immeuble-card" open>
+        <summary><span class="nom">${r.immeuble.nom}</span><span class="sous-total">dossier OneDrive : "${r.nomOneDrive}"</span></summary>
+        ${r.erreur ? `<div class="statut-documents-erreur" style="padding:0.8rem;">⚠️ ${r.erreur}</div>` : `
+        <table class="table-comparaison">
+          <thead><tr><th>Attendu par Gestion Loyers</th><th>Trouvé dans OneDrive</th></tr></thead>
+          <tbody>${lignes.join('')}</tbody>
+        </table>`}
+      </details>`;
+  }).join('');
+}
 
 function statutDocumentsDetail(immeubleId, u) {
   if (!u.locataire || u.inoccupe) return null;

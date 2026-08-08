@@ -22,13 +22,21 @@ function normaliserNom(s) {
 
 async function listerEnfants(cheminDossier) {
   const chemin = cheminDossier.split('/').map(encodeURIComponent).join('/');
-  const res = await appelGraph(`/me/drive/root:/${chemin}:/children?$select=name,folder,file`);
-  if (!res.ok) {
-    if (res.status === 404) return [];
-    throw new Error(`Listage dossier "${cheminDossier}" : ${await detailErreur(res)}`);
+  let url = `/me/drive/root:/${chemin}:/children?$select=name,folder,file&$top=200`;
+  const tousLesElements = [];
+  while (url) {
+    const res = await appelGraph(url);
+    if (!res.ok) {
+      if (res.status === 404) return tousLesElements;
+      throw new Error(`Listage dossier "${cheminDossier}" : ${await detailErreur(res)}`);
+    }
+    const data = await res.json();
+    tousLesElements.push(...(data.value || []));
+    // suivre la pagination Graph (@odata.nextLink) pour ne pas rater d'éléments
+    // dans les dossiers avec beaucoup de photos (200+)
+    url = data['@odata.nextLink'] ? data['@odata.nextLink'].replace(/^https:\/\/graph\.microsoft\.com\/v1\.0/, '') : null;
   }
-  const data = await res.json();
-  return data.value || [];
+  return tousLesElements;
 }
 
 // Extrait la partie "unité" d'une désignation complète, ex. "STUDIO 3 NIMY" + immeuble "Nimy" -> "STUDIO 3"

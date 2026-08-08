@@ -157,13 +157,16 @@ async function scannerUnite(immeubleId, designation, locataire) {
 
 // --- Règles métier : qui doit avoir quoi ---
 
-function avenantRequis(immeubleId, locataire) {
+function avenantRequis(immeubleId, locataire, designation) {
   if (!['nimy', 'petite-guirlande', 'biche'].includes(immeubleId)) return false;
   if (locataire && normaliserNom(locataire).includes('DELIS')) return false; // accepte Delise et Delisse
+  if (designation && /COMMERCIAL/i.test(designation)) return false; // RDC COMMERCIAL jamais d'avenant
+  if (immeubleId === 'biche' && designation && /^APPARTEMENT/i.test(normaliserNom(designation).trim())) return false; // Appart. Biche (sans numéro) jamais d'avenant
   return true;
 }
 
 function samadhiRequis(immeubleId, designation) {
+  if (designation && /^APPART(EMENT)?\b/i.test(normaliserNom(designation).trim()) && immeubleId === 'biche') return false; // Appart. Biche (sans numéro) jamais de Samadhi
   if (immeubleId === 'nimy' || immeubleId === 'biche') return true;
   if (immeubleId === 'petite-guirlande') {
     const m = designation.match(/STUDIO\s+(\d+)/i);

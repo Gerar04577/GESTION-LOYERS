@@ -862,7 +862,7 @@ function statutDocumentsDetail(immeubleId, u) {
   const lignes = [];
   for (const type of ['bail', 'edle', 'edls', 'avenant', 'samadhi']) {
     let requis = true;
-    if (type === 'avenant') requis = avenantRequis(immeubleId, u.locataire);
+    if (type === 'avenant') requis = avenantRequis(immeubleId, u.locataire, u.designation);
     if (type === 'samadhi') requis = samadhiRequis(immeubleId, u.designation);
     if (type === 'edls') requis = false; // jamais signalé manquant tant que locataire en place
     const present = res.trouves.includes(type);

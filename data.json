@@ -231,7 +231,7 @@
         {
           "id": "nimy-15",
           "designation": "STUDIO 10 NIMY",
-          "locataire": "Souleiman HODO",
+          "locataire": null,
           "loyerBrut": 345.0,
           "charges": 95.0,
           "poubelles": 15.0,
@@ -248,7 +248,8 @@
           "bailEnregistre": true,
           "finBail": "2026-05-21",
           "poubellesStatut": "ND",
-          "internetStatut": "oui"
+          "internetStatut": "oui",
+          "inoccupe": true
         },
         {
           "id": "nimy-16",

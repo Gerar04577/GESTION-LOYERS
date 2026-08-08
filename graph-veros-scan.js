@@ -32,24 +32,43 @@ async function listerEnfants(cheminDossier) {
 }
 
 // Extrait la partie "unité" d'une désignation complète, ex. "STUDIO 3 NIMY" + immeuble "Nimy" -> "STUDIO 3"
+// Correspondance par TYPE + NUMÉRO (studio 3, étage 1, RDC, garage, duplex, appart 3...)
+// plutôt que par mots — les vrais noms OneDrive sont trop différents des désignations
+// de Gestion Loyers pour une simple comparaison de texte (ex. "REZ-DE-CHAUSSÉE" vs "RDC").
+function extraireTypeEtNumero(nom) {
+  const n = normaliserNom(nom);
+  if (/COMMERCIAL/.test(n)) return { type: 'RDC_COMMERCIAL', num: null };
+  if (/\bRDC\b/.test(n) || /REZ[\s-]*DE[\s-]*CHAUSSEE/.test(n)) return { type: 'RDC', num: null };
+  if (/GARAGE/.test(n)) return { type: 'GARAGE', num: null };
+  if (/DUPLEX/.test(n)) return { type: 'DUPLEX', num: null };
+  let m = n.match(/STUDIO\s*(\d+)/);
+  if (m) return { type: 'STUDIO', num: parseInt(m[1], 10) };
+  m = n.match(/(\d+)\s*(ER|EME|E)?\s*ETAGE/);
+  if (m) return { type: 'ETAGE', num: parseInt(m[1], 10) };
+  m = n.match(/APPART(?:EMENT)?\.?\s*(\d+)/);
+  if (m) return { type: 'ETAGE', num: parseInt(m[1], 10) }; // APPART et ETAGE traités comme équivalents (même logement désigné différemment)
+  if (/\bAPPARTEMENT\b/.test(n) || /\bAPPART\.?\b/.test(n)) return { type: 'APPART', num: null };
+  return { type: null, num: null };
+}
+
 function extraireNomUnite(designation, nomImmeubleAffiche) {
+  // conservé pour l'affichage (comparaison lisible), la vraie correspondance utilise extraireTypeEtNumero
   const norm = normaliserNom(designation);
   const motsImmeuble = normaliserNom(nomImmeubleAffiche).split(' ');
   return norm.split(' ').filter(mot => !motsImmeuble.includes(mot)).join(' ').trim();
 }
 
 async function trouverDossierUnite(dossierImmeubleEnfants, cheminImmeuble, nomUnite) {
-  const cible = normaliserNom(nomUnite);
-  // correspondance : le nom du dossier OneDrive contient tous les mots significatifs du nom d'unité, ou l'inverse
-  const motsCible = cible.split(' ').filter(m => m.length > 0);
-  let meilleur = null;
+  const cibleTypeNum = extraireTypeEtNumero(nomUnite);
+  if (!cibleTypeNum.type) return null;
   for (const enfant of dossierImmeubleEnfants) {
     if (!enfant.folder) continue;
-    const nomDossier = normaliserNom(enfant.name);
-    const contientTout = motsCible.every(m => nomDossier.includes(m));
-    if (contientTout) { meilleur = enfant; break; }
+    const dossierTypeNum = extraireTypeEtNumero(enfant.name);
+    if (dossierTypeNum.type === cibleTypeNum.type && dossierTypeNum.num === cibleTypeNum.num) {
+      return enfant;
+    }
   }
-  return meilleur;
+  return null;
 }
 
 const TYPES_DOCUMENTS = {
@@ -75,8 +94,8 @@ async function scannerUnite(immeubleId, designation, locataire) {
 
   const cheminImmeuble = `${DOSSIER_RACINE_IMMEUBLES}/${nomOneDrive}`;
   const enfantsImmeuble = await listerEnfants(cheminImmeuble);
-  const nomUnite = extraireNomUnite(designation, nomOneDrive);
-  const dossierUnite = await trouverDossierUnite(enfantsImmeuble, cheminImmeuble, nomUnite);
+  const nomUnite = extraireNomUnite(designation, nomOneDrive); // pour affichage lisible seulement
+  const dossierUnite = await trouverDossierUnite(enfantsImmeuble, cheminImmeuble, designation);
   if (!dossierUnite) return { erreur: `Dossier unité "${nomUnite}" introuvable dans OneDrive` };
 
   const cheminUnite = `${cheminImmeuble}/${dossierUnite.name}`;
@@ -84,11 +103,16 @@ async function scannerUnite(immeubleId, designation, locataire) {
   const dossiersLocataires = enfantsUnite.filter(e => e.folder);
   if (!dossiersLocataires.length) return { erreur: 'Aucun dossier locataire trouvé' };
 
-  // essai de correspondance par nom de locataire, sinon on prend tous les dossiers locataires
+  // essai de correspondance par nom de locataire : n'importe quel mot significatif
+  // (nom de famille le plus souvent) suffit, pas seulement le premier mot — un prénom
+  // mal orthographié (Vincent/Valentin) ne doit pas empêcher la correspondance sur le nom (ISTASSE)
   let dossiersACheck = dossiersLocataires;
   if (locataire) {
-    const nomLoc = normaliserNom(locataire).split(' ')[0]; // premier mot (nom ou prénom) suffit généralement
-    const correspondance = dossiersLocataires.filter(d => normaliserNom(d.name).includes(nomLoc));
+    const motsLoc = normaliserNom(locataire).split(' ').filter(m => m.length >= 3);
+    const correspondance = dossiersLocataires.filter(d => {
+      const nomDossier = normaliserNom(d.name);
+      return motsLoc.some(mot => nomDossier.includes(mot));
+    });
     if (correspondance.length) dossiersACheck = correspondance;
   }
 
@@ -108,7 +132,7 @@ async function scannerUnite(immeubleId, designation, locataire) {
 
 function avenantRequis(immeubleId, locataire) {
   if (!['nimy', 'petite-guirlande', 'biche'].includes(immeubleId)) return false;
-  if (locataire && normaliserNom(locataire).includes('DELISSE')) return false;
+  if (locataire && normaliserNom(locataire).includes('DELIS')) return false; // accepte Delise et Delisse
   return true;
 }
 

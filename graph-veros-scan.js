@@ -139,6 +139,16 @@ async function scannerUnite(immeubleId, designation, locataire) {
     const enfantsLoc = await listerEnfants(cheminLoc);
     for (const item of enfantsLoc) {
       for (const type of detecterTypesDansNom(item.name)) trouves.add(type);
+      // regarder aussi à l'intérieur des sous-dossiers (ex. "Bail/Bail Avenant XXX.pdf" —
+      // le mot "Avenant" n'est souvent que dans le nom du fichier, pas du dossier)
+      if (item.folder) {
+        const cheminItem = `${cheminLoc}/${item.name}`;
+        let sousItems = [];
+        try { sousItems = await listerEnfants(cheminItem); } catch (e) { /* dossier illisible, ignoré */ }
+        for (const sousItem of sousItems) {
+          for (const type of detecterTypesDansNom(sousItem.name)) trouves.add(type);
+        }
+      }
     }
   }
 

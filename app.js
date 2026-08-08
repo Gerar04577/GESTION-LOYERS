@@ -246,16 +246,16 @@ async function chargerDonneesInitiales() {
 const CHAMPS_PROTEGES_REIMPORT = ['id', 'montantsVerses', 'commentaires', 'notesInternes'];
 
 async function reimporterVentilation() {
-  if (!confirm("Réimporter TOUTES les données depuis data.json dans le mois affiché ? (montants versés, prochain paiement, commentaires et notes internes déjà saisis ce mois-ci ne sont pas touchés — tout le reste, y compris locataire et statut inoccupé, sera remplacé)")) return;
+  if (!confirm("Réimporter TOUTES les données depuis data.json dans le mois affiché ? (montants versés, prochain paiement, commentaires et notes internes déjà saisis ce mois-ci ne sont pas touchés — tout le reste, y compris locataire, désignation et statut inoccupé, sera remplacé)")) return;
   const frais = await chargerDonneesInitiales();
   const index = {};
   for (const b of frais.immeubles) {
-    for (const u of b.unites) index[u.designation] = u;
+    for (const u of b.unites) index[u.id] = u;
   }
   let maj = 0;
   for (const b of appData.immeubles) {
     for (const u of b.unites) {
-      const source = index[u.designation];
+      const source = index[u.id];
       if (!source) continue;
       for (const cle of Object.keys(source)) {
         if (CHAMPS_PROTEGES_REIMPORT.includes(cle)) continue;

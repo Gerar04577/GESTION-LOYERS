@@ -215,6 +215,7 @@ main {
   display: flex;
   justify-content: space-between;
   align-items: baseline;
+  gap: 0.6rem;
 }
 .immeuble-card summary::-webkit-details-marker { display: none; }
 
@@ -504,6 +505,26 @@ main {
   0% { background: var(--accent-light); }
   100% { background: transparent; }
 }
+
+.entete-vue-documents {
+  max-width: 720px;
+  margin: 0 auto 0.9rem;
+  padding: 0 0.9rem;
+  text-align: center;
+}
+.entete-vue-documents h2 {
+  font-family: var(--font-display);
+  font-size: 1.15rem;
+  color: var(--ink);
+  margin: 0.5rem 0;
+}
+.entete-vue-documents .champ-recherche-documents { margin: 0.5rem 0; }
+.entete-vue-documents .btn-connexion {
+  color: var(--text-muted);
+  border-color: var(--paper-line);
+  background: white;
+}
+.entete-vue-documents .btn-connexion:hover { background: var(--paper-line); }
 
 .champ-recherche-documents {
   display: block;

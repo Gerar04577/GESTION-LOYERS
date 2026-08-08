@@ -471,6 +471,7 @@ function ajouterUnite(immeubleId) {
 
 let uniteEnEdition = null;
 let immeublesOuverts = new Set();
+let immeublesOuvertsDocuments = new Set();
 
 function ouvrirEdition(uniteId) {
   uniteEnEdition = uniteId;
@@ -639,28 +640,19 @@ function formulaireEdition(immeuble, u) {
 }
 
 // ---------- Scan documents VéroS (indépendant, redondant volontairement) ----------
+// Vue entièrement séparée de la liste des loyers, dédiée aux documents.
 
 let resultatsScanDocuments = {}; // { uniteId: {trouves: [...]} ou {erreur: ...} }
-let filtreRechercheDocuments = '';
-
-function documentsManquants(immeubleId, u) {
-  if (!u.locataire || u.inoccupe) return [];
-  const res = resultatsScanDocuments[u.id];
-  if (!res || res.erreur) return null; // pas encore scanné ou erreur
-  const manquants = [];
-  if (!res.trouves.includes('bail')) manquants.push('Bail');
-  if (!res.trouves.includes('edle')) manquants.push('EDLE');
-  if (avenantRequis(immeubleId, u.locataire) && !res.trouves.includes('avenant')) manquants.push('Avenant');
-  if (samadhiRequis(immeubleId, u.designation) && !res.trouves.includes('samadhi')) manquants.push('Samadhi');
-  // EDLS volontairement non signalé comme manquant tant que le locataire est en place (comme VéroS)
-  return manquants;
-}
+let filtreVueDocuments = '';
 
 async function lancerScanDocuments() {
   if (typeof estConnecte !== 'function' || !estConnecte()) {
     alert("Connecte-toi à OneDrive d'abord pour vérifier les documents.");
     return;
   }
+  document.getElementById('immeubles-container').style.display = 'none';
+  document.getElementById('vue-documents').style.display = 'block';
+
   const statut = document.getElementById('statut-scan-documents');
   const unitesAScannaner = [];
   for (const b of appData.immeubles) {
@@ -677,57 +669,74 @@ async function lancerScanDocuments() {
       resultatsScanDocuments[u.id] = { erreur: e.message };
     }
     fait++;
-    render();
+    rendreVueDocuments();
   }
-  document.getElementById('recherche-documents').style.display = 'block';
-  statut.textContent = `Vérification terminée — ${fait} unité(s) contrôlée(s) (${new Date().toLocaleTimeString('fr-BE',{hour:'2-digit',minute:'2-digit'})})`;
+  statut.textContent = `Vérification terminée — ${fait} unité(s) contrôlée(s) sur ${appData.immeubles.reduce((n,b)=>n+b.unites.length,0)} (${new Date().toLocaleTimeString('fr-BE',{hour:'2-digit',minute:'2-digit'})})`;
 }
 
-function filtrerRechercheDocuments(valeur) {
-  filtreRechercheDocuments = normaliserNom(valeur);
-  render();
+function retourVueLoyers() {
+  document.getElementById('vue-documents').style.display = 'none';
+  document.getElementById('immeubles-container').style.display = 'block';
 }
 
-function basculerRecherche() {
-  const zone = document.getElementById('zone-recherche');
-  const ouvert = zone.style.display !== 'none';
-  zone.style.display = ouvert ? 'none' : 'block';
-  if (ouvert) {
-    document.getElementById('recherche-documents').value = '';
-    filtrerRechercheDocuments('');
-  } else {
-    document.getElementById('recherche-documents').focus();
-  }
+function filtrerVueDocuments(valeur) {
+  filtreVueDocuments = normaliserNom(valeur);
+  rendreVueDocuments();
 }
 
-function remplirAccesDirectUnites() {
-  const select = document.getElementById('acces-direct-unite');
-  select.innerHTML = '<option value="">Accès direct à un studio/appartement…</option>';
-  for (const b of appData.immeubles) {
-    const groupe = document.createElement('optgroup');
-    groupe.label = b.nom;
-    for (const u of b.unites) {
-      const opt = document.createElement('option');
-      opt.value = u.id;
-      opt.textContent = u.designation + (u.locataire ? ' — ' + u.locataire : '');
-      groupe.appendChild(opt);
+function rendreVueDocuments() {
+  const container = document.getElementById('vue-documents-container');
+  container.innerHTML = '';
+
+  for (const immeuble of appData.immeubles) {
+    const unitesAAfficher = immeuble.unites.filter(u => {
+      if (!u.locataire || u.inoccupe) return false;
+      if (filtreVueDocuments) {
+        const cible = normaliserNom(u.designation + ' ' + u.locataire);
+        if (!cible.includes(filtreVueDocuments)) return false;
+      }
+      return true;
+    });
+    if (!unitesAAfficher.length) continue;
+
+    const nbAvecManque = unitesAAfficher.filter(u => {
+      const s = statutDocumentsDetail(immeuble.id, u);
+      return s && !s.erreur && s.lignes.some(l => l.requis && !l.present);
+    }).length;
+
+    const details = document.createElement('details');
+    details.className = 'immeuble-card';
+    details.open = immeublesOuvertsDocuments.has(immeuble.id) || !!filtreVueDocuments;
+    details.addEventListener('toggle', () => {
+      if (details.open) immeublesOuvertsDocuments.add(immeuble.id);
+      else immeublesOuvertsDocuments.delete(immeuble.id);
+    });
+
+    const summary = document.createElement('summary');
+    summary.innerHTML = `
+      <span class="nom">${immeuble.nom}</span>
+      <span class="sous-total">${unitesAAfficher.length} unité(s)${nbAvecManque ? ` — <span class="attente-immeuble">${nbAvecManque} avec document(s) manquant(s)</span>` : ' — tout est en ordre'}</span>
+    `;
+    details.appendChild(summary);
+
+    for (const u of unitesAAfficher) {
+      const statut = statutDocumentsDetail(immeuble.id, u);
+      const row = document.createElement('div');
+      row.className = 'unite-row';
+      row.innerHTML = `
+        <div style="flex:1;">
+          <div class="designation">${u.designation}</div>
+          <div class="locataire">${u.locataire}</div>
+          ${statut ? rendreStatutDocumentsHTML(statut) : '<div class="statut-documents-erreur">Pas encore vérifié</div>'}
+        </div>
+      `;
+      details.appendChild(row);
     }
-    select.appendChild(groupe);
+    container.appendChild(details);
   }
-}
 
-function allerDirectementAUnite(uniteId) {
-  if (!uniteId) return;
-  const trouve = trouverUnite(uniteId);
-  if (!trouve) return;
-  immeublesOuverts.add(trouve.immeuble.id);
-  render();
-  document.getElementById('acces-direct-unite').value = '';
-  const el = document.getElementById('ligne-' + uniteId);
-  if (el) {
-    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    el.classList.add('unite-surlignee');
-    setTimeout(() => el.classList.remove('unite-surlignee'), 2000);
+  if (!container.children.length) {
+    container.innerHTML = '<p class="placeholder-note">Aucune unité ne correspond.</p>';
   }
 }
 
@@ -784,7 +793,7 @@ function render() {
     const t = calculerTotauxImmeuble(immeuble);
     const details = document.createElement('details');
     details.className = 'immeuble-card';
-    details.open = immeuble.unites.some(u => u.id === uniteEnEdition) || immeublesOuverts.has(immeuble.id) || !!filtreRechercheDocuments;
+    details.open = immeuble.unites.some(u => u.id === uniteEnEdition) || immeublesOuverts.has(immeuble.id);
     details.addEventListener('toggle', () => {
       if (details.open) immeublesOuverts.add(immeuble.id);
       else immeublesOuverts.delete(immeuble.id);
@@ -801,10 +810,6 @@ function render() {
     details.appendChild(summary);
 
     for (const u of immeuble.unites) {
-      if (filtreRechercheDocuments) {
-        const cible = normaliserNom(u.designation + ' ' + (u.locataire || ''));
-        if (!cible.includes(filtreRechercheDocuments)) continue;
-      }
       if (u.id === uniteEnEdition) {
         const wrap = document.createElement('div');
         wrap.innerHTML = formulaireEdition(immeuble, u);
@@ -825,9 +830,7 @@ function render() {
       const assuranceKO = assuranceAVerifier(u);
       const attente = resteEnAttente(u);
       const conflit = conflitPoubelles(u) || conflitInternet(u);
-      const statutDocs = statutDocumentsDetail(immeuble.id, u);
       const row = document.createElement('div');
-      row.id = 'ligne-' + u.id;
       row.className = 'unite-row unite-row-clickable';
       row.onclick = () => ouvrirEdition(u.id);
       row.innerHTML = `
@@ -835,7 +838,6 @@ function render() {
           <div class="designation">${u.designation}</div>
           <div class="locataire">${u.locataire || 'Logement libre'}</div>
           ${attente > 0 ? `<div class="attente-unite">En attente : ${formatMontant(attente)}</div>` : ''}
-          ${rendreStatutDocumentsHTML(statutDocs)}
         </div>
         <div class="montant">
           ${u.aVentiler && !u.inoccupe ? '<span title="Loyer non encore ventilé">*</span> ' : ''}${formatMontant(loyerCC)}
@@ -859,7 +861,6 @@ function render() {
     container.appendChild(details);
   }
 
-  remplirAccesDirectUnites();
   afficherCorbeille();
 }
 

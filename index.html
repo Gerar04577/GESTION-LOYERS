@@ -58,22 +58,22 @@
     <p class="placeholder-note">Chargement…</p>
   </div>
 
+  <div id="vue-documents" style="display:none;">
+    <div class="entete-vue-documents">
+      <h2>Documents — Bail / EDLE / EDLS / Avenant / Samadhi</h2>
+      <input id="recherche-vue-documents" class="champ-recherche-documents" type="text" placeholder="Rechercher par locataire ou studio…" oninput="filtrerVueDocuments(this.value)">
+      <button class="btn-connexion" onclick="retourVueLoyers()">← Retour aux loyers</button>
+    </div>
+    <div id="vue-documents-container"></div>
+  </div>
+
   <div id="corbeille-container"></div>
 
   <div class="zone-gestion-immeubles">
     <button class="btn-connexion" onclick="basculerMenuGestionImmeubles()">Gérer les immeubles</button>
     <button class="btn-connexion" onclick="lancerScanDocuments()">Vérifier documents</button>
-    <button class="btn-connexion" onclick="basculerRecherche()">🔍 Rechercher</button>
     <div id="menu-gestion-immeubles" class="menu-gestion-immeubles" style="display:none;"></div>
     <div id="statut-scan-documents" class="derniere-sauvegarde"></div>
-
-    <div id="zone-recherche" style="display:none;">
-      <input id="recherche-documents" class="champ-recherche-documents" type="text" placeholder="Rechercher par locataire ou studio…" oninput="filtrerRechercheDocuments(this.value)">
-    </div>
-
-    <select id="acces-direct-unite" class="champ-recherche-documents" onchange="allerDirectementAUnite(this.value)">
-      <option value="">Accès direct à un studio/appartement…</option>
-    </select>
   </div>
 
 </main>

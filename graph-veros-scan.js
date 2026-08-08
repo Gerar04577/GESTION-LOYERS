@@ -146,15 +146,19 @@ async function scannerUnite(immeubleId, designation, locataire) {
     const cheminLoc = `${cheminUnite}/${dossierLoc.name}`;
     const enfantsLoc = await listerEnfants(cheminLoc);
     for (const item of enfantsLoc) {
-      for (const type of detecterTypesDansNom(item.name)) trouves.add(type);
-      // regarder aussi à l'intérieur des sous-dossiers (ex. "Bail/Bail Avenant XXX.pdf" —
-      // le mot "Avenant" n'est souvent que dans le nom du fichier, pas du dossier)
+      // seuls les vrais FICHIERS comptent comme preuve — un dossier vide nommé "EDLS"
+      // ne doit jamais suffire (il est créé à l'avance et reste vide tant que le locataire est en place)
+      if (item.file) {
+        for (const type of detecterTypesDansNom(item.name)) trouves.add(type);
+      }
       if (item.folder) {
         const cheminItem = `${cheminLoc}/${item.name}`;
         let sousItems = [];
         try { sousItems = await listerEnfants(cheminItem); } catch (e) { /* dossier illisible, ignoré */ }
         for (const sousItem of sousItems) {
-          for (const type of detecterTypesDansNom(sousItem.name)) trouves.add(type);
+          if (sousItem.file) {
+            for (const type of detecterTypesDansNom(sousItem.name)) trouves.add(type);
+          }
         }
       }
     }

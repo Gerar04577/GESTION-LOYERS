@@ -494,17 +494,16 @@ main {
 .doc-item {
   display: inline-flex;
   align-items: center;
-  gap: 0.25rem;
-  font-size: 0.72rem;
-  padding: 0.12rem 0.4rem;
-  border-radius: 5px;
-  background: var(--paper);
+  gap: 0.3rem;
+  font-size: 0.74rem;
+  font-weight: 600;
+  padding: 0.22rem 0.55rem;
+  border-radius: 6px;
 }
-.doc-icone { font-weight: 700; }
-.doc-present { color: var(--ok-color); }
-.doc-present .doc-icone { color: var(--ok-color); }
-.doc-manquant { color: var(--alert-red); background: var(--alert-red-bg); }
-.doc-non-requis { color: var(--text-muted); opacity: 0.6; }
+.doc-icone { font-weight: 800; }
+.doc-present { background: #2e7d4f; color: white; }
+.doc-manquant { background: var(--alert-red); color: white; }
+.doc-non-requis { background: #e4e0da; color: #6b6458; }
 .statut-documents-erreur { font-size: 0.72rem; color: var(--alert-red); margin-top: 0.3rem; }
 
 .unite-surlignee { animation: surlignage 2s ease; }

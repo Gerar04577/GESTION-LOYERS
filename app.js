@@ -643,6 +643,7 @@ function formulaireEdition(immeuble, u) {
 // Vue entièrement séparée de la liste des loyers, dédiée aux documents.
 
 let resultatsScanDocuments = {}; // { uniteId: {trouves: [...]} ou {erreur: ...} }
+let changementLocataireParUnite = {}; // { uniteId: true si locataire différent du mois précédent }
 let filtreVueDocuments = '';
 
 async function lancerScanDocuments() {
@@ -685,7 +686,9 @@ async function lancerScanDocuments() {
       const resultat = await scannerUnite(immeubleId, u.designation, u.locataire);
       // si le locataire a changé depuis le mois précédent, l'EDLS attendu est celui de L'ANCIEN locataire
       const ancien = ancienLocatairesParUnite[u.id];
-      if (ancien && ancien !== u.locataire && resultat && !resultat.erreur && !resultat.trouves.includes('edls')) {
+      const changement = !!(ancien && ancien !== u.locataire);
+      changementLocataireParUnite[u.id] = changement;
+      if (changement && resultat && !resultat.erreur && !resultat.trouves.includes('edls')) {
         try {
           const resultatAncien = await scannerUnite(immeubleId, u.designation, ancien);
           if (resultatAncien && !resultatAncien.erreur && resultatAncien.trouves.includes('edls')) {
@@ -895,7 +898,7 @@ function statutDocumentsDetail(immeubleId, u) {
     let requis = true;
     if (type === 'avenant') requis = avenantRequis(immeubleId, u.locataire, u.designation);
     if (type === 'samadhi') requis = samadhiRequis(immeubleId, u.designation);
-    if (type === 'edls') requis = false; // jamais signalé manquant tant que locataire en place
+    if (type === 'edls') requis = !!changementLocataireParUnite[u.id]; // rouge seulement si changement de locataire détecté
     const present = res.trouves.includes(type);
     lignes.push({ type, label: LABELS_DOCUMENTS[type], present, requis });
   }

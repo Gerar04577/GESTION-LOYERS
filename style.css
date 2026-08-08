@@ -533,6 +533,21 @@ main {
 }
 .entete-vue-documents .btn-connexion:hover { background: var(--paper-line); }
 
+.barre-progression-conteneur {
+  max-width: 300px;
+  margin: 0.5rem auto 0;
+  height: 6px;
+  background: rgba(255,255,255,0.15);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.barre-progression {
+  height: 100%;
+  width: 0%;
+  background: var(--accent, #c9a876);
+  transition: width 0.2s ease;
+}
+
 .table-comparaison {
   width: 100%;
   border-collapse: collapse;

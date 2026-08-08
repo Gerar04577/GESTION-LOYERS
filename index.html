@@ -14,7 +14,7 @@
 
 <header class="app-header">
   <h1>Gestion Loyers</h1>
-  <div class="version-app">v18</div>
+  <div class="version-app">v20</div>
   <div class="subtitle"><span class="scan-dot"></span> <span id="sync-status">Chargement…</span></div>
   <div id="derniere-sauvegarde" class="derniere-sauvegarde"></div>
   <button id="connexion-onedrive" class="btn-connexion">Se connecter à OneDrive</button>
@@ -85,6 +85,9 @@
     <button class="btn-connexion" onclick="lancerComparaisonDossiers()">Comparer noms OneDrive</button>
     <div id="menu-gestion-immeubles" class="menu-gestion-immeubles" style="display:none;"></div>
     <div id="statut-scan-documents" class="derniere-sauvegarde"></div>
+    <div id="barre-progression-conteneur" class="barre-progression-conteneur" style="display:none;">
+      <div id="barre-progression" class="barre-progression"></div>
+    </div>
   </div>
 
 </main>

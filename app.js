@@ -654,6 +654,23 @@ async function lancerScanDocuments() {
   document.getElementById('vue-documents').style.display = 'block';
 
   const statut = document.getElementById('statut-scan-documents');
+  const barreConteneur = document.getElementById('barre-progression-conteneur');
+  const barre = document.getElementById('barre-progression');
+  barreConteneur.style.display = 'block';
+  barre.style.width = '0%';
+
+  // charger le mois précédent pour repérer les changements de locataire (ancien locataire = qui doit avoir l'EDLS)
+  let ancienLocatairesParUnite = {};
+  try {
+    const moisPrec = moisPrecedent(moisAffiche);
+    const donneesPrec = await chargerMoisOneDrive(moisPrec);
+    if (donneesPrec) {
+      for (const b of donneesPrec.immeubles) {
+        for (const u of b.unites) ancienLocatairesParUnite[u.id] = u.locataire;
+      }
+    }
+  } catch (e) { /* pas de mois précédent disponible, on continue sans */ }
+
   const unitesAScannaner = [];
   for (const b of appData.immeubles) {
     for (const u of b.unites) {
@@ -663,14 +680,28 @@ async function lancerScanDocuments() {
   let fait = 0;
   for (const { immeubleId, u } of unitesAScannaner) {
     statut.textContent = `Vérification en cours… ${fait}/${unitesAScannaner.length}`;
+    barre.style.width = `${Math.round((fait / unitesAScannaner.length) * 100)}%`;
     try {
-      resultatsScanDocuments[u.id] = await scannerUnite(immeubleId, u.designation, u.locataire);
+      const resultat = await scannerUnite(immeubleId, u.designation, u.locataire);
+      // si le locataire a changé depuis le mois précédent, l'EDLS attendu est celui de L'ANCIEN locataire
+      const ancien = ancienLocatairesParUnite[u.id];
+      if (ancien && ancien !== u.locataire && resultat && !resultat.erreur && !resultat.trouves.includes('edls')) {
+        try {
+          const resultatAncien = await scannerUnite(immeubleId, u.designation, ancien);
+          if (resultatAncien && !resultatAncien.erreur && resultatAncien.trouves.includes('edls')) {
+            resultat.trouves.push('edls');
+          }
+        } catch (e) { /* ancien locataire introuvable dans OneDrive, tant pis */ }
+      }
+      resultatsScanDocuments[u.id] = resultat;
     } catch (e) {
       resultatsScanDocuments[u.id] = { erreur: e.message };
     }
     fait++;
+    barre.style.width = `${Math.round((fait / unitesAScannaner.length) * 100)}%`;
     rendreVueDocuments();
   }
+  barreConteneur.style.display = 'none';
   statut.textContent = `Vérification terminée — ${fait} unité(s) contrôlée(s) sur ${appData.immeubles.reduce((n,b)=>n+b.unites.length,0)} (${new Date().toLocaleTimeString('fr-BE',{hour:'2-digit',minute:'2-digit'})})`;
 }
 

@@ -991,9 +991,10 @@ async function lancerComparaisonDossiers() {
     const lignes = r.immeuble.unites.map(u => {
       const attendu = extraireNomUnite(u.designation, r.nomOneDrive);
       const cible = extraireTypeEtNumero(u.designation);
+      const typesAcceptesIci = cible.type === 'RDC' ? ['RDC', 'RDC_COMMERCIAL'] : [cible.type];
       const reel = r.dossiersReels.find(d => {
         const t = extraireTypeEtNumero(d);
-        return cible.type && t.type === cible.type && t.num === cible.num;
+        return cible.type && typesAcceptesIci.includes(t.type) && t.num === cible.num;
       });
       if (reel) dossiersReelsUtilises.add(reel);
       return `<tr class="${!reel ? 'ligne-non-correspondante' : ''}">

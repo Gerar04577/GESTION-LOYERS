@@ -987,22 +987,23 @@ async function lancerComparaisonDossiers() {
   }
 
   container.innerHTML = resultatsParImmeuble.map(r => {
-    const nomsAttendus = r.immeuble.unites.map(u => extraireNomUnite(u.designation, r.nomOneDrive));
-    const lignes = [];
-    const max = Math.max(nomsAttendus.length, r.dossiersReels.length);
-    for (let i = 0; i < max; i++) {
-      const attendu = nomsAttendus[i] || '';
-      const reel = r.dossiersReels[i] || '';
-      const correspond = attendu && r.dossiersReels.some(d => {
-        const a = extraireTypeEtNumero(attendu);
-        const b = extraireTypeEtNumero(d);
-        return a.type && a.type === b.type && a.num === b.num;
+    const dossiersReelsUtilises = new Set();
+    const lignes = r.immeuble.unites.map(u => {
+      const attendu = extraireNomUnite(u.designation, r.nomOneDrive);
+      const cible = extraireTypeEtNumero(u.designation);
+      const reel = r.dossiersReels.find(d => {
+        const t = extraireTypeEtNumero(d);
+        return cible.type && t.type === cible.type && t.num === cible.num;
       });
-      lignes.push(`<tr class="${attendu && !correspond ? 'ligne-non-correspondante' : ''}">
+      if (reel) dossiersReelsUtilises.add(reel);
+      return `<tr class="${!reel ? 'ligne-non-correspondante' : ''}">
         <td>${attendu || '—'}</td>
-        <td>${reel || '—'}</td>
-      </tr>`);
-    }
+        <td>${reel || '(aucune correspondance trouvée)'}</td>
+      </tr>`;
+    });
+    // dossiers réels qui ne correspondent à aucune unité attendue (ex. "Bail RDC Commercial 2022",
+    // "Photos Géomètre avril 2024") — affichés à part, jamais mélangés aux vraies unités
+    const extras = r.dossiersReels.filter(d => !dossiersReelsUtilises.has(d));
     return `
       <details class="immeuble-card" open>
         <summary><span class="nom">${r.immeuble.nom}</span><span class="sous-total">dossier OneDrive : "${r.nomOneDrive}"</span></summary>
@@ -1010,7 +1011,9 @@ async function lancerComparaisonDossiers() {
         <table class="table-comparaison">
           <thead><tr><th>Attendu par Gestion Loyers</th><th>Trouvé dans OneDrive</th></tr></thead>
           <tbody>${lignes.join('')}</tbody>
-        </table>`}
+        </table>
+        ${extras.length ? `<p class="placeholder-note" style="padding:0.6rem 0.9rem;">Dossiers présents dans OneDrive mais qui ne correspondent à aucune unité (normal — pas des logements) : ${extras.join(', ')}</p>` : ''}
+        `}
       </details>`;
   }).join('');
 }

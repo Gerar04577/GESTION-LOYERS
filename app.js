@@ -709,7 +709,10 @@ async function lancerScanDocuments() {
 }
 
 function retourVueLoyers() {
-  document.getElementById('vue-documents').style.display = 'none';
+  // ferme TOUTES les vues secondaires par préfixe (vue-*), pas une par une à la main —
+  // pour ne plus jamais en oublier une nouvellement ajoutée (c'est ce qui a posé
+  // problème : 4 vues ajoutées depuis n'avaient jamais été prises en compte ici)
+  document.querySelectorAll('[id^="vue-"]').forEach(el => { el.style.display = 'none'; });
   document.getElementById('immeubles-container').style.display = 'block';
 }
 

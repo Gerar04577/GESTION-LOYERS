@@ -835,6 +835,47 @@ function telechargerListeManquants() {
 
 const LABELS_DOCUMENTS = { bail: 'Bail', edle: 'EDLE', edls: 'EDLS', avenant: 'Avenant', samadhi: 'Samadhi' };
 
+async function ouvrirVueOneDrive() {
+  if (typeof estConnecte !== 'function' || !estConnecte()) {
+    alert("Connecte-toi à OneDrive d'abord.");
+    return;
+  }
+  document.getElementById('immeubles-container').style.display = 'none';
+  document.getElementById('vue-onedrive').style.display = 'block';
+  document.getElementById('vue-onedrive-resultats').innerHTML = '';
+
+  const container = document.getElementById('vue-onedrive-immeubles');
+  container.innerHTML = '<p class="placeholder-note">Chargement des immeubles…</p>';
+  const lignes = [];
+  for (const b of appData.immeubles) {
+    try {
+      const url = await obtenirLienImmeuble(b.id);
+      lignes.push(`<div class="ligne-gestion-immeuble"><span>${b.nom}</span><a class="btn-connexion" href="${url}" target="_blank" rel="noopener" style="text-decoration:none;display:inline-block;">Ouvrir</a></div>`);
+    } catch (e) {
+      lignes.push(`<div class="ligne-gestion-immeuble"><span>${b.nom}</span><span class="statut-documents-erreur">Indisponible</span></div>`);
+    }
+  }
+  container.innerHTML = `<div class="menu-gestion-immeubles">${lignes.join('')}</div>`;
+}
+
+async function lancerRechercheOneDrive() {
+  const texte = document.getElementById('recherche-onedrive').value.trim();
+  const container = document.getElementById('vue-onedrive-resultats');
+  if (!texte) { container.innerHTML = ''; return; }
+  container.innerHTML = '<p class="placeholder-note">Recherche en cours…</p>';
+  const resultats = await rechercherDansOneDrive(texte);
+  if (!resultats.length) {
+    container.innerHTML = '<p class="placeholder-note">Aucun résultat.</p>';
+    return;
+  }
+  container.innerHTML = `<div class="menu-gestion-immeubles">${resultats.map(r => `
+    <div class="ligne-gestion-immeuble">
+      <span>${r.immeuble} — ${r.unite} — ${r.locataire}</span>
+      <a class="btn-connexion" href="${r.webUrl}" target="_blank" rel="noopener" style="text-decoration:none;display:inline-block;">Ouvrir</a>
+    </div>
+  `).join('')}</div>`;
+}
+
 async function lancerComparaisonDossiers() {
   if (typeof estConnecte !== 'function' || !estConnecte()) {
     alert("Connecte-toi à OneDrive d'abord.");

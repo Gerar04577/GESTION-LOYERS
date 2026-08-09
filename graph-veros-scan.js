@@ -22,7 +22,7 @@ function normaliserNom(s) {
 
 async function listerEnfants(cheminDossier) {
   const chemin = cheminDossier.split('/').map(encodeURIComponent).join('/');
-  let url = `/me/drive/root:/${chemin}:/children?$select=name,folder,file&$top=200`;
+  let url = `/me/drive/root:/${chemin}:/children?$select=name,folder,file,webUrl&$top=200`;
   const tousLesElements = [];
   while (url) {
     const res = await appelGraph(url);
@@ -165,6 +165,57 @@ async function scannerUnite(immeubleId, designation, locataire) {
   }
 
   return { trouves: [...trouves] };
+}
+
+// --- Ouverture directe dans OneDrive (immeuble ou recherche locataire/unité) ---
+// Volontairement limité aux 7 immeubles réels — exclut toujours les dossiers utilitaires
+// "VeroS" et "GESTION-LOYERS" à la racine, jamais listés ici.
+
+async function obtenirWebUrlDossier(cheminDossier) {
+  const chemin = cheminDossier.split('/').map(encodeURIComponent).join('/');
+  const res = await appelGraph(`/me/drive/root:/${chemin}?$select=webUrl`);
+  if (!res.ok) throw new Error(`Lecture lien OneDrive "${cheminDossier}" : ${await detailErreur(res)}`);
+  const data = await res.json();
+  return data.webUrl;
+}
+
+async function obtenirLienImmeuble(immeubleId) {
+  const nomOneDrive = DOSSIER_ONEDRIVE_PAR_IMMEUBLE[immeubleId];
+  if (!nomOneDrive) throw new Error('Immeuble non mappé à OneDrive');
+  return await obtenirWebUrlDossier(`${DOSSIER_RACINE_IMMEUBLES}/${nomOneDrive}`);
+}
+
+// Recherche un texte (nom de locataire ou désignation d'unité) dans les 7 immeubles réels,
+// renvoie les dossiers locataires correspondants avec leur lien OneDrive direct
+async function rechercherDansOneDrive(texte) {
+  const cible = normaliserNom(texte);
+  if (!cible) return [];
+  const resultats = [];
+  for (const [immeubleId, nomOneDrive] of Object.entries(DOSSIER_ONEDRIVE_PAR_IMMEUBLE)) {
+    const cheminImmeuble = `${DOSSIER_RACINE_IMMEUBLES}/${nomOneDrive}`;
+    let enfantsImmeuble;
+    try { enfantsImmeuble = await listerEnfants(cheminImmeuble); } catch (e) { continue; }
+    for (const uniteDossier of enfantsImmeuble) {
+      if (!uniteDossier.folder) continue;
+      const cheminUnite = `${cheminImmeuble}/${uniteDossier.name}`;
+      let enfantsUnite;
+      try { enfantsUnite = await listerEnfants(cheminUnite); } catch (e) { continue; }
+      for (const locDossier of enfantsUnite) {
+        if (!locDossier.folder) continue;
+        const nomUniteNorm = normaliserNom(uniteDossier.name);
+        const nomLocNorm = normaliserNom(locDossier.name);
+        if (nomUniteNorm.includes(cible) || nomLocNorm.includes(cible)) {
+          resultats.push({
+            immeuble: nomOneDrive,
+            unite: uniteDossier.name,
+            locataire: locDossier.name,
+            webUrl: locDossier.webUrl,
+          });
+        }
+      }
+    }
+  }
+  return resultats;
 }
 
 // --- Règles métier : qui doit avoir quoi ---

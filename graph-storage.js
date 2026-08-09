@@ -57,7 +57,9 @@ async function assurerDossier(cheminRelatif) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: segment, folder: {}, "@microsoft.graph.conflictBehavior": "rename" })
       });
-      if (!creation.ok) throw new Error(`Création dossier "${segment}" : ${await detailErreur(creation)}`);
+      if (!creation.ok && creation.status !== 409) throw new Error(`Création dossier "${segment}" : ${await detailErreur(creation)}`);
+      // un 409 ici veut dire que le dossier existe déjà (créé entre-temps par un autre utilisateur/session) —
+      // c'est exactement ce qu'on voulait, donc ce n'est pas une erreur, on continue normalement
     }
     cheminCourant = cheminCourant + '/' + segment;
   }
@@ -100,7 +102,8 @@ async function sauvegarderMoisOneDrive(mois, data) {
   const res = await appelGraph(`/me/drive/root:/${cheminMois(mois)}:/content`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(data, null, 2)
+    body: JSON.stringify(data, null, 2),
+    keepalive: true // le navigateur termine l'envoi même si l'app est fermée brutalement (essentiel sur iOS)
   });
   if (!res.ok) throw new Error(`Écriture mois ${mois} : ${await detailErreur(res)}`);
 

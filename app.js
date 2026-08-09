@@ -835,6 +835,92 @@ function telechargerListeManquants() {
 
 const LABELS_DOCUMENTS = { bail: 'Bail', edle: 'EDLE', edls: 'EDLS', avenant: 'Avenant', samadhi: 'Samadhi' };
 
+// --- Import ponctuel VBA septembre (bouton temporaire, à retirer après usage) ---
+// Le fichier JSON est préparé par Claude à partir du vrai fichier VBA (comme pour août),
+// jamais l'app elle-même qui ne lit pas les .xlsm — juste un petit JSON déjà extrait.
+
+function lancerImportVbaSeptembre(fichier) {
+  if (!fichier) return;
+  const lecteur = new FileReader();
+  lecteur.onload = (e) => {
+    let donneesVba;
+    try {
+      donneesVba = JSON.parse(e.target.result);
+    } catch (err) {
+      alert("Fichier illisible — ce doit être le JSON préparé par Claude, pas le fichier Excel directement.");
+      return;
+    }
+    demarrerRevueVbaSeptembre(donneesVba);
+  };
+  lecteur.readAsText(fichier);
+}
+
+const LABELS_CHAMPS_VBA = {
+  locataire: 'Locataire',
+  loyerBrut: 'Loyer brut (€)',
+  charges: 'Charges (€)',
+  poubelles: 'Poubelles (€)',
+  internet: 'Internet (€)',
+};
+
+let listeDifferencesVba = [];
+let indexDifferenceVbaEnCours = 0;
+
+function demarrerRevueVbaSeptembre(donneesVba) {
+  listeDifferencesVba = [];
+  for (const b of appData.immeubles) {
+    for (const u of b.unites) {
+      const entreeVba = donneesVba[u.id];
+      if (!entreeVba) continue; // rien dans le VBA pour cette unité (ex. RDC commercial sans locataire), on ignore
+      for (const champ of Object.keys(LABELS_CHAMPS_VBA)) {
+        if (!(champ in entreeVba)) continue;
+        const valeurVba = entreeVba[champ];
+        const valeurActuelle = u[champ];
+        const different = champ === 'locataire'
+          ? normaliserNom(valeurVba) !== normaliserNom(valeurActuelle || '')
+          : Number(valeurVba) !== Number(valeurActuelle || 0);
+        if (different) {
+          listeDifferencesVba.push({ uniteId: u.id, designation: u.designation, champ, valeurActuelle, valeurVba });
+        }
+      }
+    }
+  }
+  indexDifferenceVbaEnCours = 0;
+  document.getElementById('immeubles-container').style.display = 'none';
+  document.getElementById('vue-import-vba').style.display = 'block';
+  afficherProchaineDifferenceVba();
+}
+
+function afficherProchaineDifferenceVba() {
+  const container = document.getElementById('vue-import-vba-container');
+  if (indexDifferenceVbaEnCours >= listeDifferencesVba.length) {
+    container.innerHTML = `<p class="placeholder-note">Terminé — ${listeDifferencesVba.length} différence(s) passée(s) en revue.</p>`;
+    sauvegarder();
+    return;
+  }
+  const d = listeDifferencesVba[indexDifferenceVbaEnCours];
+  const label = LABELS_CHAMPS_VBA[d.champ];
+  container.innerHTML = `
+    <div class="immeuble-card" style="padding:1rem;">
+      <div class="designation">${d.designation}</div>
+      <p>${label} : <strong>${d.valeurActuelle ?? '(vide)'}</strong> → <strong>${d.valeurVba}</strong></p>
+      <p class="placeholder-note">Différence ${indexDifferenceVbaEnCours + 1} sur ${listeDifferencesVba.length}</p>
+      <button class="btn btn-primary" onclick="repondreDifferenceVba(true)">✓ Confirmer le changement</button>
+      <button class="btn" onclick="repondreDifferenceVba(false)">✗ Ignorer</button>
+    </div>
+  `;
+}
+
+function repondreDifferenceVba(confirmer) {
+  const d = listeDifferencesVba[indexDifferenceVbaEnCours];
+  if (confirmer) {
+    const trouve = trouverUnite(d.uniteId);
+    if (trouve) trouve.unite[d.champ] = d.valeurVba;
+  }
+  indexDifferenceVbaEnCours++;
+  afficherProchaineDifferenceVba();
+}
+
 async function ouvrirVueOneDrive() {
   if (typeof estConnecte !== 'function' || !estConnecte()) {
     alert("Connecte-toi à OneDrive d'abord.");

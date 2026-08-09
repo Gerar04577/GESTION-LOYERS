@@ -2,8 +2,10 @@
 // Détection par NOM de dossier/fichier (pas de lecture du contenu des PDF ici —
 // l'OCR viendra dans une étape séparée pour les documents combinés).
 // Scan indépendant de VéroS, redondant volontairement, ne touche jamais à VéroS.
-
-const DOSSIER_RACINE_IMMEUBLES = "Immobilier 2025-2026";
+//
+// Navigation PAR IDENTIFIANT, jamais par chemin texte (voir graph-storage.js
+// pour l'explication complète : un chemin texte échoue sur un dossier partagé
+// vu en raccourci — c'est le cas pour toute personne autre que Gérard).
 
 // Correspondance entre l'identifiant interne de Gestion Loyers et le vrai nom du dossier OneDrive
 const DOSSIER_ONEDRIVE_PAR_IMMEUBLE = {
@@ -18,25 +20,6 @@ const DOSSIER_ONEDRIVE_PAR_IMMEUBLE = {
 
 function normaliserNom(s) {
   return (s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/\s+/g, ' ').trim();
-}
-
-async function listerEnfants(cheminDossier) {
-  const chemin = cheminDossier.split('/').map(encodeURIComponent).join('/');
-  let url = `/me/drive/root:/${chemin}:/children?$select=name,folder,file,webUrl&$top=200`;
-  const tousLesElements = [];
-  while (url) {
-    const res = await appelGraph(url);
-    if (!res.ok) {
-      if (res.status === 404) return tousLesElements;
-      throw new Error(`Listage dossier "${cheminDossier}" : ${await detailErreur(res)}`);
-    }
-    const data = await res.json();
-    tousLesElements.push(...(data.value || []));
-    // suivre la pagination Graph (@odata.nextLink) pour ne pas rater d'éléments
-    // dans les dossiers avec beaucoup de photos (200+)
-    url = data['@odata.nextLink'] ? data['@odata.nextLink'].replace(/^https:\/\/graph\.microsoft\.com\/v1\.0/, '') : null;
-  }
-  return tousLesElements;
 }
 
 // Extrait la partie "unité" d'une désignation complète, ex. "STUDIO 3 NIMY" + immeuble "Nimy" -> "STUDIO 3"
@@ -66,34 +49,50 @@ function extraireNomUnite(designation, nomImmeubleAffiche) {
   return norm.split(' ').filter(mot => !motsImmeuble.includes(mot)).join(' ').trim();
 }
 
-async function trouverDossierUnite(dossierImmeubleEnfants, cheminImmeuble, nomUnite, locataire) {
+// cache des refs immeuble (driveId+id), pour ne pas relister la racine à chaque scan
+const _cacheRefImmeuble = {};
+
+async function obtenirRefImmeuble(immeubleId) {
+  if (_cacheRefImmeuble[immeubleId]) return _cacheRefImmeuble[immeubleId];
+  const nomOneDrive = DOSSIER_ONEDRIVE_PAR_IMMEUBLE[immeubleId];
+  if (!nomOneDrive) throw new Error('Immeuble non mappé à OneDrive');
+  const refRacine = await obtenirRefRacineImmobilier();
+  const enfantsRacine = await enfantsDeRef(refRacine);
+  const trouve = enfantsRacine.find(e => (e.name || '').trim() === nomOneDrive);
+  if (!trouve) throw new Error(`Dossier immeuble "${nomOneDrive}" introuvable`);
+  const ref = refDe(trouve, refRacine.driveId);
+  _cacheRefImmeuble[immeubleId] = ref;
+  return ref;
+}
+
+async function trouverRefUnite(enfantsImmeuble, refImmeuble, nomUnite, locataire) {
   const cibleTypeNum = extraireTypeEtNumero(nomUnite);
   if (!cibleTypeNum.type) return null;
   // "RDC" côté app est ambigu (peut être résidentiel ou commercial selon les cas comme PTG) :
   // on élargit aux deux types réels possibles et on laisse le locataire départager
   const typesAcceptes = cibleTypeNum.type === 'RDC' ? ['RDC', 'RDC_COMMERCIAL'] : [cibleTypeNum.type];
-  const candidats = dossierImmeubleEnfants.filter(enfant => {
-    if (!enfant.folder) return false;
+  const candidats = enfantsImmeuble.filter(enfant => {
+    if (!enfant.folder && !enfant.remoteItem) return false;
     const t = extraireTypeEtNumero(enfant.name);
     return typesAcceptes.includes(t.type) && t.num === cibleTypeNum.num;
   });
-  if (candidats.length <= 1) return candidats[0] || null;
+  if (candidats.length <= 1) return candidats[0] ? { item: candidats[0], ref: refDe(candidats[0], refImmeuble.driveId) } : null;
 
   // plusieurs dossiers du même type (ex. RDC résidentiel ET RDC commercial) :
   // on départage via le nom du locataire déjà connu dans l'app
   if (locataire) {
     const motsLoc = normaliserNom(locataire).split(' ').filter(m => m.length >= 3);
     for (const candidat of candidats) {
-      const cheminCandidat = `${cheminImmeuble}/${candidat.name}`;
-      const sousDossiers = await listerEnfants(cheminCandidat);
+      const refCandidat = refDe(candidat, refImmeuble.driveId);
+      const sousDossiers = await enfantsDeRef(refCandidat);
       const correspond = sousDossiers.some(d => {
         const nomD = normaliserNom(d.name);
         return motsLoc.some(mot => nomD.includes(mot));
       });
-      if (correspond) return candidat;
+      if (correspond) return { item: candidat, ref: refCandidat };
     }
   }
-  return candidats[0]; // repli si aucun locataire ne correspond
+  return { item: candidats[0], ref: refDe(candidats[0], refImmeuble.driveId) }; // repli si aucun locataire ne correspond
 }
 
 const TYPES_DOCUMENTS = {
@@ -114,18 +113,20 @@ function detecterTypesDansNom(nomDossierOuFichier) {
 }
 
 async function scannerUnite(immeubleId, designation, locataire) {
+  let refImmeuble;
+  try {
+    refImmeuble = await obtenirRefImmeuble(immeubleId);
+  } catch (e) {
+    return { erreur: e.message };
+  }
+  const enfantsImmeuble = await enfantsDeRef(refImmeuble);
   const nomOneDrive = DOSSIER_ONEDRIVE_PAR_IMMEUBLE[immeubleId];
-  if (!nomOneDrive) return { erreur: 'Immeuble non mappé à OneDrive' };
-
-  const cheminImmeuble = `${DOSSIER_RACINE_IMMEUBLES}/${nomOneDrive}`;
-  const enfantsImmeuble = await listerEnfants(cheminImmeuble);
   const nomUnite = extraireNomUnite(designation, nomOneDrive); // pour affichage lisible seulement
-  const dossierUnite = await trouverDossierUnite(enfantsImmeuble, cheminImmeuble, designation, locataire);
-  if (!dossierUnite) return { erreur: `Dossier unité "${nomUnite}" introuvable dans OneDrive` };
+  const trouveUnite = await trouverRefUnite(enfantsImmeuble, refImmeuble, designation, locataire);
+  if (!trouveUnite) return { erreur: `Dossier unité "${nomUnite}" introuvable dans OneDrive` };
 
-  const cheminUnite = `${cheminImmeuble}/${dossierUnite.name}`;
-  const enfantsUnite = await listerEnfants(cheminUnite);
-  const dossiersLocataires = enfantsUnite.filter(e => e.folder);
+  const enfantsUnite = await enfantsDeRef(trouveUnite.ref);
+  const dossiersLocataires = enfantsUnite.filter(e => e.folder || e.remoteItem);
   if (!dossiersLocataires.length) return { erreur: 'Aucun dossier locataire trouvé' };
 
   // essai de correspondance par nom de locataire : n'importe quel mot significatif
@@ -143,18 +144,18 @@ async function scannerUnite(immeubleId, designation, locataire) {
 
   const trouves = new Set();
   for (const dossierLoc of dossiersACheck) {
-    const cheminLoc = `${cheminUnite}/${dossierLoc.name}`;
-    const enfantsLoc = await listerEnfants(cheminLoc);
+    const refLoc = refDe(dossierLoc, trouveUnite.ref.driveId);
+    const enfantsLoc = await enfantsDeRef(refLoc);
     for (const item of enfantsLoc) {
       // seuls les vrais FICHIERS comptent comme preuve — un dossier vide nommé "EDLS"
       // ne doit jamais suffire (il est créé à l'avance et reste vide tant que le locataire est en place)
       if (item.file) {
         for (const type of detecterTypesDansNom(item.name)) trouves.add(type);
       }
-      if (item.folder) {
-        const cheminItem = `${cheminLoc}/${item.name}`;
+      if (item.folder || item.remoteItem) {
+        const refItem = refDe(item, refLoc.driveId);
         let sousItems = [];
-        try { sousItems = await listerEnfants(cheminItem); } catch (e) { /* dossier illisible, ignoré */ }
+        try { sousItems = await enfantsDeRef(refItem); } catch (e) { /* dossier illisible, ignoré */ }
         for (const sousItem of sousItems) {
           if (sousItem.file) {
             for (const type of detecterTypesDansNom(sousItem.name)) trouves.add(type);
@@ -171,18 +172,17 @@ async function scannerUnite(immeubleId, designation, locataire) {
 // Volontairement limité aux 7 immeubles réels — exclut toujours les dossiers utilitaires
 // "VeroS" et "GESTION-LOYERS" à la racine, jamais listés ici.
 
-async function obtenirWebUrlDossier(cheminDossier) {
-  const chemin = cheminDossier.split('/').map(encodeURIComponent).join('/');
-  const res = await appelGraph(`/me/drive/root:/${chemin}?$select=webUrl`);
-  if (!res.ok) throw new Error(`Lecture lien OneDrive "${cheminDossier}" : ${await detailErreur(res)}`);
+async function obtenirWebUrlRef(ref) {
+  const url = ref.driveId ? `/drives/${ref.driveId}/items/${ref.id}?$select=webUrl` : `/me/drive/items/${ref.id}?$select=webUrl`;
+  const res = await appelGraph(url);
+  if (!res.ok) throw new Error(`Lecture lien OneDrive : ${await detailErreur(res)}`);
   const data = await res.json();
   return data.webUrl;
 }
 
 async function obtenirLienImmeuble(immeubleId) {
-  const nomOneDrive = DOSSIER_ONEDRIVE_PAR_IMMEUBLE[immeubleId];
-  if (!nomOneDrive) throw new Error('Immeuble non mappé à OneDrive');
-  return await obtenirWebUrlDossier(`${DOSSIER_RACINE_IMMEUBLES}/${nomOneDrive}`);
+  const refImmeuble = await obtenirRefImmeuble(immeubleId);
+  return await obtenirWebUrlRef(refImmeuble);
 }
 
 // Recherche un texte (nom de locataire ou désignation d'unité) dans les 7 immeubles réels,
@@ -192,16 +192,18 @@ async function rechercherDansOneDrive(texte) {
   if (!cible) return [];
   const resultats = [];
   for (const [immeubleId, nomOneDrive] of Object.entries(DOSSIER_ONEDRIVE_PAR_IMMEUBLE)) {
-    const cheminImmeuble = `${DOSSIER_RACINE_IMMEUBLES}/${nomOneDrive}`;
-    let enfantsImmeuble;
-    try { enfantsImmeuble = await listerEnfants(cheminImmeuble); } catch (e) { continue; }
+    let refImmeuble, enfantsImmeuble;
+    try {
+      refImmeuble = await obtenirRefImmeuble(immeubleId);
+      enfantsImmeuble = await enfantsDeRef(refImmeuble);
+    } catch (e) { continue; }
     for (const uniteDossier of enfantsImmeuble) {
-      if (!uniteDossier.folder) continue;
-      const cheminUnite = `${cheminImmeuble}/${uniteDossier.name}`;
+      if (!uniteDossier.folder && !uniteDossier.remoteItem) continue;
+      const refUnite = refDe(uniteDossier, refImmeuble.driveId);
       let enfantsUnite;
-      try { enfantsUnite = await listerEnfants(cheminUnite); } catch (e) { continue; }
+      try { enfantsUnite = await enfantsDeRef(refUnite); } catch (e) { continue; }
       for (const locDossier of enfantsUnite) {
-        if (!locDossier.folder) continue;
+        if (!locDossier.folder && !locDossier.remoteItem) continue;
         const nomUniteNorm = normaliserNom(uniteDossier.name);
         const nomLocNorm = normaliserNom(locDossier.name);
         if (nomUniteNorm.includes(cible) || nomLocNorm.includes(cible)) {

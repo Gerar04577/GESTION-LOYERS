@@ -962,6 +962,31 @@ async function lancerRechercheOneDrive() {
   `).join('')}</div>`;
 }
 
+function reinitialisationComplete() {
+  const premiereConfirmation = confirm(
+    "⚠️ ATTENTION — Ceci va :\n" +
+    "• Déconnecter OneDrive\n" +
+    "• Effacer TOUTES les données enregistrées localement sur cet appareil (tous les mois en cache, connexion, préférences)\n\n" +
+    "Les données déjà sauvegardées sur OneDrive ne sont PAS touchées — seulement ce qui est stocké sur cet appareil.\n\n" +
+    "Continuer ?"
+  );
+  if (!premiereConfirmation) return;
+  const secondeConfirmation = confirm("Vraiment sûr ? Cette action est irréversible sur cet appareil.");
+  if (!secondeConfirmation) return;
+
+  // Nettoyage PAR PRÉFIXE, pas clé par clé : tout ce qui commence par "gestionLoyers"
+  // est effacé, pour ne jamais rien oublier même si une clé est ajoutée plus tard sans
+  // penser à mettre à jour cette fonction (c'est ce qui avait posé problème sur un autre projet).
+  const clesLocalStorage = Object.keys(localStorage).filter(k => k.startsWith('gestionLoyers'));
+  clesLocalStorage.forEach(k => localStorage.removeItem(k));
+
+  const clesSessionStorage = Object.keys(sessionStorage).filter(k => k.startsWith('gestionLoyers'));
+  clesSessionStorage.forEach(k => sessionStorage.removeItem(k));
+
+  alert(`Réinitialisation terminée (${clesLocalStorage.length + clesSessionStorage.length} élément(s) effacé(s)). L'application va recharger.`);
+  window.location.reload();
+}
+
 async function lancerDiagnosticRacine() {
   if (typeof estConnecte !== 'function' || !estConnecte()) {
     alert("Connecte-toi à OneDrive d'abord.");
@@ -990,9 +1015,9 @@ async function lancerDiagnosticRacine() {
 
   // 2. Racine du drive : tout ce qui est visible à la racine de "Mes fichiers"
   try {
-    const resRacine = await appelGraph('/me/drive/root/children?$select=name,folder');
+    const resRacine = await appelGraph('/me/drive/root/children?$select=name,folder,remoteItem');
     const dataRacine = await resRacine.json();
-    const dossiers = (dataRacine.value || []).filter(e => e.folder).map(e => e.name);
+    const dossiers = (dataRacine.value || []).filter(e => e.folder || e.remoteItem).map(e => e.name + (e.remoteItem ? ' (raccourci)' : ''));
     const presentImmobilier = dossiers.some(n => n.toLowerCase().includes('immobilier'));
     html += `<div class="immeuble-card" style="padding:1rem;">
       <div class="designation">Racine de "Mes fichiers" (${dossiers.length} dossier(s))</div>
@@ -1005,20 +1030,36 @@ async function lancerDiagnosticRacine() {
     html += `<div class="immeuble-card" style="padding:1rem;"><div class="statut-documents-erreur">⚠️ Impossible de lire la racine du drive : ${e.message}</div></div>`;
   }
 
-  // 3. Tentative directe sur le chemin utilisé par l'app
+  // 3. Accès par identifiant (nouvelle méthode, gère aussi les raccourcis)
   try {
-    const resDirect = await appelGraph(`/me/drive/root:/${encodeURIComponent(DOSSIER_RACINE_IMMEUBLES)}:/children?$select=name,folder`);
+    const refRacine = await obtenirRefRacineImmobilier();
+    const enfantsDirect = await enfantsDeRef(refRacine);
+    const dossiers = enfantsDirect.filter(e => e.folder || e.remoteItem).map(e => e.name);
+    html += `<div class="immeuble-card" style="padding:1rem;">
+      <div class="designation">Accès direct à "Immobilier 2025-2026" (par identifiant)</div>
+      <p style="color:#2e7d4f;font-weight:700;">✓ Trouvé — contenu : ${dossiers.join(', ') || '(vide)'}</p>
+    </div>`;
+  } catch (e) {
+    html += `<div class="immeuble-card" style="padding:1rem;">
+      <div class="designation">Accès direct à "Immobilier 2025-2026" (par identifiant)</div>
+      <p class="statut-documents-erreur">✗ Échec : ${e.message}</p>
+    </div>`;
+  }
+
+  // 4. Comparaison : l'ancienne méthode par chemin texte (pour montrer la différence)
+  try {
+    const resDirect = await appelGraph(`/me/drive/root:/${encodeURIComponent(DOSSIER_RACINE_PARTAGE)}:/children?$select=name,folder`);
     if (resDirect.ok) {
       const dataDirect = await resDirect.json();
       const dossiers = (dataDirect.value || []).filter(e => e.folder).map(e => e.name);
       html += `<div class="immeuble-card" style="padding:1rem;">
-        <div class="designation">Accès direct à "${DOSSIER_RACINE_IMMEUBLES}"</div>
+        <div class="designation">Ancienne méthode (par chemin texte)</div>
         <p style="color:#2e7d4f;font-weight:700;">✓ Trouvé — contenu : ${dossiers.join(', ') || '(vide)'}</p>
       </div>`;
     } else {
       const erreurTexte = await resDirect.text();
       html += `<div class="immeuble-card" style="padding:1rem;">
-        <div class="designation">Accès direct à "${DOSSIER_RACINE_IMMEUBLES}"</div>
+        <div class="designation">Ancienne méthode (par chemin texte)</div>
         <p class="statut-documents-erreur">✗ Échec (${resDirect.status}) : ${erreurTexte.slice(0, 300)}</p>
       </div>`;
     }
@@ -1045,8 +1086,9 @@ async function lancerComparaisonDossiers() {
     let dossiersReels = [];
     let erreur = null;
     try {
-      const enfants = await listerEnfants(`${DOSSIER_RACINE_IMMEUBLES}/${nomOneDrive}`);
-      dossiersReels = enfants.filter(e => e.folder).map(e => e.name);
+      const refImmeuble = await obtenirRefImmeuble(b.id);
+      const enfants = await enfantsDeRef(refImmeuble);
+      dossiersReels = enfants.filter(e => e.folder || e.remoteItem).map(e => e.name);
     } catch (e) {
       erreur = e.message;
     }

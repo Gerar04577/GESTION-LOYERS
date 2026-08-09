@@ -8,13 +8,13 @@
 <link rel="apple-touch-icon" href="icons/icon-192.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#1f2e28">
-<link rel="stylesheet" href="style.css?v=28">
+<link rel="stylesheet" href="style.css?v=30">
 </head>
 <body>
 
 <header class="app-header">
   <h1>Gestion Loyers</h1>
-  <div class="version-app">v28</div>
+  <div class="version-app">v30</div>
   <div class="subtitle"><span class="scan-dot"></span> <span id="sync-status">Chargement…</span></div>
   <div id="derniere-sauvegarde" class="derniere-sauvegarde"></div>
   <button id="connexion-onedrive" class="btn-connexion">Se connecter à OneDrive</button>
@@ -115,6 +115,7 @@
     <button class="btn-connexion" onclick="lancerComparaisonDossiers()">Comparer noms OneDrive</button>
     <button class="btn-connexion" onclick="document.getElementById('fichier-vba-septembre').click()">Importer VBA septembre (une fois)</button>
     <button class="btn-connexion" onclick="lancerDiagnosticRacine()">🔍 Diagnostic OneDrive</button>
+    <button class="btn-connexion" onclick="reinitialisationComplete()" style="background:var(--alert-red);color:white;">🗑️ Déconnecter et tout réinitialiser</button>
     <input type="file" id="fichier-vba-septembre" accept=".json" style="display:none;" onchange="lancerImportVbaSeptembre(this.files[0])">
     <div id="menu-gestion-immeubles" class="menu-gestion-immeubles" style="display:none;"></div>
     <div id="statut-scan-documents" class="derniere-sauvegarde"></div>
@@ -125,9 +126,9 @@
 
 </main>
 
-<script src="graph-auth.js?v=28"></script>
-<script src="graph-storage.js?v=28"></script>
-<script src="graph-veros-scan.js?v=28"></script>
-<script src="app.js?v=28"></script>
+<script src="graph-auth.js?v=30"></script>
+<script src="graph-storage.js?v=30"></script>
+<script src="graph-veros-scan.js?v=30"></script>
+<script src="app.js?v=30"></script>
 </body>
 </html>

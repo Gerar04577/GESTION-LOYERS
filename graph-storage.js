@@ -1,11 +1,16 @@
 // Gestion Loyers — stockage des données dans OneDrive
 // Un fichier PAR MOIS dans un sous-dossier dédié "GESTION-LOYERS/historique",
 // à l'intérieur du dossier PARTAGÉ "Immobilier 2025-2026" (le même que VéroS).
-// Chaque mois reste entièrement modifiable, y compris les mois passés
-// (ex. pour noter un loyer payé en retard après coup).
 //
-// ATTENTION (même mise en garde que pour VéroS) : le nom du dossier partagé peut
-// changer chaque année. S'il est renommé, changer DOSSIER_RACINE_PARTAGE ci-dessous.
+// IMPORTANT (méthode reprise de VéroS après un vrai bug en conditions réelles) :
+// pour Gérard, "Immobilier 2025-2026" est un vrai dossier — un accès par CHEMIN
+// TEXTE (/me/drive/root:/Immobilier 2025-2026/...) fonctionne. Mais pour toute
+// autre personne (Véronique, Carine...), ce même dossier n'est visible que comme
+// un RACCOURCI vers le drive de Gérard — Microsoft appelle ça un "remoteItem".
+// Un accès par chemin texte échoue sur un raccourci (confirmé : erreur 422
+// "Children cannot be listed from an item that is not a folder"). La seule
+// méthode fiable pour tout le monde est de naviguer par IDENTIFIANT, jamais
+// par texte — exactement ce que fait VéroS.
 
 const DOSSIER_RACINE_PARTAGE = "Immobilier 2025-2026";
 const SOUS_DOSSIER = "GESTION-LOYERS";
@@ -39,70 +44,141 @@ async function detailErreur(res) {
   }
 }
 
-async function assurerDossier(cheminRelatif) {
-  const chemin = encoderChemin(`${DOSSIER_RACINE_PARTAGE}/${cheminRelatif}`);
-  const verif = await appelGraph(`/me/drive/root:/${chemin}`);
-  if (verif.ok) return;
-  if (verif.status !== 404) throw new Error(`Vérification dossier : ${await detailErreur(verif)}`);
+// --- Navigation PAR IDENTIFIANT (méthode VéroS) ---
 
-  // Créer récursivement segment par segment (les sous-dossiers imbriqués ne se créent pas tout seuls)
-  const segments = cheminRelatif.split('/');
-  let cheminCourant = DOSSIER_RACINE_PARTAGE;
-  for (const segment of segments) {
-    const cheminCourantEnc = encoderChemin(cheminCourant);
-    const cible = await appelGraph(`/me/drive/root:/${encoderChemin(cheminCourant + '/' + segment)}`);
-    if (!cible.ok) {
-      const creation = await appelGraph(`/me/drive/root:/${cheminCourantEnc}:/children`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: segment, folder: {}, "@microsoft.graph.conflictBehavior": "rename" })
-      });
-      if (!creation.ok && creation.status !== 409) throw new Error(`Création dossier "${segment}" : ${await detailErreur(creation)}`);
-      // un 409 ici veut dire que le dossier existe déjà (créé entre-temps par un autre utilisateur/session) —
-      // c'est exactement ce qu'on voulait, donc ce n'est pas une erreur, on continue normalement
-    }
-    cheminCourant = cheminCourant + '/' + segment;
+// coordonnées réelles d'un élément : son espace de stockage (driveId) et son
+// identifiant — gère aussi bien un vrai dossier qu'un raccourci (remoteItem)
+function refDe(item, driveParent) {
+  if (item.remoteItem) {
+    return {
+      driveId: (item.remoteItem.parentReference && item.remoteItem.parentReference.driveId) || driveParent || null,
+      id: item.remoteItem.id,
+    };
   }
+  return { driveId: driveParent || null, id: item.id };
 }
 
-function cheminMois(mois) {
-  return encoderChemin(`${DOSSIER_RACINE_PARTAGE}/${SOUS_DOSSIER_HISTORIQUE}/${mois}.json`);
+async function enfantsDeRef(ref) {
+  const champs = 'id,name,folder,file,remoteItem,webUrl';
+  let url;
+  if (!ref || !ref.id) {
+    url = `/me/drive/root/children?$top=200&$select=${champs}`;
+  } else if (ref.driveId) {
+    url = `/drives/${ref.driveId}/items/${ref.id}/children?$top=200&$select=${champs}`;
+  } else {
+    url = `/me/drive/items/${ref.id}/children?$top=200&$select=${champs}`;
+  }
+  const tousLesElements = [];
+  while (url) {
+    const res = await appelGraph(url);
+    if (!res.ok) {
+      if (res.status === 404) return tousLesElements;
+      throw new Error(`Listage : ${await detailErreur(res)}`);
+    }
+    const data = await res.json();
+    tousLesElements.push(...(data.value || []));
+    url = data['@odata.nextLink'] ? data['@odata.nextLink'].replace(/^https:\/\/graph\.microsoft\.com\/v1\.0/, '') : null;
+  }
+  return tousLesElements;
 }
 
-function cheminIndex() {
-  return encoderChemin(`${DOSSIER_RACINE_PARTAGE}/${SOUS_DOSSIER_HISTORIQUE}/${NOM_FICHIER_INDEX}`);
+let _refRacineImmobilierCache = null;
+async function obtenirRefRacineImmobilier() {
+  if (_refRacineImmobilierCache) return _refRacineImmobilierCache;
+  const enfants = await enfantsDeRef(null); // racine "Mes fichiers"
+  const trouve = enfants.find(e => (e.name || '').trim() === DOSSIER_RACINE_PARTAGE);
+  if (!trouve) throw new Error(`Dossier "${DOSSIER_RACINE_PARTAGE}" introuvable dans "Mes fichiers" — vérifier qu'il est bien ajouté en raccourci`);
+  _refRacineImmobilierCache = refDe(trouve, null);
+  return _refRacineImmobilierCache;
+}
+
+// résout un chemin RELATIF à "Immobilier 2025-2026" (ex. "GESTION-LOYERS/historique")
+// en descendant segment par segment PAR IDENTIFIANT ; crée les segments manquants
+// si creerSiAbsent est vrai
+async function resoudreRefParChemin(cheminRelatif, creerSiAbsent) {
+  let ref = await obtenirRefRacineImmobilier();
+  if (!cheminRelatif) return ref;
+  const segments = cheminRelatif.split('/').filter(Boolean);
+  for (const segment of segments) {
+    const enfants = await enfantsDeRef(ref);
+    let trouve = enfants.find(e => (e.name || '').trim() === segment);
+    if (!trouve) {
+      if (!creerSiAbsent) return null;
+      const urlCreation = ref.driveId
+        ? `/drives/${ref.driveId}/items/${ref.id}/children`
+        : `/me/drive/items/${ref.id}/children`;
+      const creation = await appelGraph(urlCreation, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: segment, folder: {}, '@microsoft.graph.conflictBehavior': 'rename' })
+      });
+      if (creation.ok) {
+        trouve = await creation.json();
+      } else if (creation.status === 409) {
+        // le dossier existe déjà (créé entre-temps par un autre utilisateur/session) — pas une erreur
+        const enfants2 = await enfantsDeRef(ref);
+        trouve = enfants2.find(e => (e.name || '').trim() === segment);
+      } else {
+        throw new Error(`Création dossier "${segment}" : ${await detailErreur(creation)}`);
+      }
+    }
+    ref = refDe(trouve, ref.driveId);
+  }
+  return ref;
+}
+
+// lit le contenu d'un fichier désigné par son NOM, à l'intérieur d'un dossier déjà résolu par identifiant
+async function lireFichierDansDossier(refDossier, nomFichier) {
+  const url = refDossier.driveId
+    ? `/drives/${refDossier.driveId}/items/${refDossier.id}:/${encodeURIComponent(nomFichier)}:/content`
+    : `/me/drive/items/${refDossier.id}:/${encodeURIComponent(nomFichier)}:/content`;
+  return await appelGraph(url);
+}
+
+// écrit (crée ou remplace) un fichier désigné par son NOM, à l'intérieur d'un dossier déjà résolu
+async function ecrireFichierDansDossier(refDossier, nomFichier, corpsTexte, options = {}) {
+  const url = refDossier.driveId
+    ? `/drives/${refDossier.driveId}/items/${refDossier.id}:/${encodeURIComponent(nomFichier)}:/content`
+    : `/me/drive/items/${refDossier.id}:/${encodeURIComponent(nomFichier)}:/content`;
+  return await appelGraph(url, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: corpsTexte,
+    ...options
+  });
+}
+
+async function assurerDossier(cheminRelatif) {
+  await resoudreRefParChemin(cheminRelatif, true);
 }
 
 async function chargerIndexMoisOneDrive() {
-  const res = await appelGraph(`/me/drive/root:/${cheminIndex()}:/content`);
+  const refDossier = await resoudreRefParChemin(SOUS_DOSSIER_HISTORIQUE, false);
+  if (!refDossier) return { mois: [] };
+  const res = await lireFichierDansDossier(refDossier, NOM_FICHIER_INDEX);
   if (res.status === 404) return { mois: [] };
   if (!res.ok) throw new Error(`Lecture index mois : ${await detailErreur(res)}`);
   return await res.json();
 }
 
 async function sauvegarderIndexMoisOneDrive(index) {
-  await assurerDossier(SOUS_DOSSIER_HISTORIQUE);
-  const res = await appelGraph(`/me/drive/root:/${cheminIndex()}:/content`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(index, null, 2)
-  });
+  const refDossier = await resoudreRefParChemin(SOUS_DOSSIER_HISTORIQUE, true);
+  const res = await ecrireFichierDansDossier(refDossier, NOM_FICHIER_INDEX, JSON.stringify(index, null, 2));
   if (!res.ok) throw new Error(`Écriture index mois : ${await detailErreur(res)}`);
 }
 
 async function chargerMoisOneDrive(mois) {
-  const res = await appelGraph(`/me/drive/root:/${cheminMois(mois)}:/content`);
+  const refDossier = await resoudreRefParChemin(SOUS_DOSSIER_HISTORIQUE, false);
+  if (!refDossier) return null;
+  const res = await lireFichierDansDossier(refDossier, `${mois}.json`);
   if (res.status === 404) return null;
   if (!res.ok) throw new Error(`Lecture mois ${mois} : ${await detailErreur(res)}`);
   return await res.json();
 }
 
 async function sauvegarderMoisOneDrive(mois, data) {
-  await assurerDossier(SOUS_DOSSIER_HISTORIQUE);
-  const res = await appelGraph(`/me/drive/root:/${cheminMois(mois)}:/content`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(data, null, 2),
+  const refDossier = await resoudreRefParChemin(SOUS_DOSSIER_HISTORIQUE, true);
+  const res = await ecrireFichierDansDossier(refDossier, `${mois}.json`, JSON.stringify(data, null, 2), {
     keepalive: true // le navigateur termine l'envoi même si l'app est fermée brutalement (essentiel sur iOS)
   });
   if (!res.ok) throw new Error(`Écriture mois ${mois} : ${await detailErreur(res)}`);

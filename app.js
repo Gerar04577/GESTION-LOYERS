@@ -962,6 +962,73 @@ async function lancerRechercheOneDrive() {
   `).join('')}</div>`;
 }
 
+async function lancerDiagnosticRacine() {
+  if (typeof estConnecte !== 'function' || !estConnecte()) {
+    alert("Connecte-toi à OneDrive d'abord.");
+    return;
+  }
+  document.getElementById('immeubles-container').style.display = 'none';
+  document.getElementById('vue-diagnostic').style.display = 'block';
+  const container = document.getElementById('vue-diagnostic-container');
+  container.innerHTML = '<p class="placeholder-note">Lecture en cours…</p>';
+
+  let html = '';
+
+  // 1. Identité du compte réellement connecté
+  try {
+    const resMoi = await appelGraph('/me?$select=displayName,mail,userPrincipalName');
+    const moi = await resMoi.json();
+    html += `<div class="immeuble-card" style="padding:1rem;">
+      <div class="designation">Compte connecté</div>
+      <p>Nom : <strong>${moi.displayName || '(inconnu)'}</strong><br>
+      Email (mail) : <strong>${moi.mail || '(vide)'}</strong><br>
+      Identifiant (userPrincipalName) : <strong>${moi.userPrincipalName || '(vide)'}</strong></p>
+    </div>`;
+  } catch (e) {
+    html += `<div class="immeuble-card" style="padding:1rem;"><div class="statut-documents-erreur">⚠️ Impossible de lire l'identité du compte : ${e.message}</div></div>`;
+  }
+
+  // 2. Racine du drive : tout ce qui est visible à la racine de "Mes fichiers"
+  try {
+    const resRacine = await appelGraph('/me/drive/root/children?$select=name,folder');
+    const dataRacine = await resRacine.json();
+    const dossiers = (dataRacine.value || []).filter(e => e.folder).map(e => e.name);
+    const presentImmobilier = dossiers.some(n => n.toLowerCase().includes('immobilier'));
+    html += `<div class="immeuble-card" style="padding:1rem;">
+      <div class="designation">Racine de "Mes fichiers" (${dossiers.length} dossier(s))</div>
+      <p>${dossiers.length ? dossiers.join(', ') : '(aucun dossier trouvé)'}</p>
+      <p style="font-weight:700;color:${presentImmobilier ? '#2e7d4f' : 'var(--alert-red)'};">
+        ${presentImmobilier ? '✓ "Immobilier 2025-2026" est bien visible ici' : "✗ Immobilier 2025-2026 n'est PAS visible ici"}
+      </p>
+    </div>`;
+  } catch (e) {
+    html += `<div class="immeuble-card" style="padding:1rem;"><div class="statut-documents-erreur">⚠️ Impossible de lire la racine du drive : ${e.message}</div></div>`;
+  }
+
+  // 3. Tentative directe sur le chemin utilisé par l'app
+  try {
+    const resDirect = await appelGraph(`/me/drive/root:/${encodeURIComponent(DOSSIER_RACINE_IMMEUBLES)}:/children?$select=name,folder`);
+    if (resDirect.ok) {
+      const dataDirect = await resDirect.json();
+      const dossiers = (dataDirect.value || []).filter(e => e.folder).map(e => e.name);
+      html += `<div class="immeuble-card" style="padding:1rem;">
+        <div class="designation">Accès direct à "${DOSSIER_RACINE_IMMEUBLES}"</div>
+        <p style="color:#2e7d4f;font-weight:700;">✓ Trouvé — contenu : ${dossiers.join(', ') || '(vide)'}</p>
+      </div>`;
+    } else {
+      const erreurTexte = await resDirect.text();
+      html += `<div class="immeuble-card" style="padding:1rem;">
+        <div class="designation">Accès direct à "${DOSSIER_RACINE_IMMEUBLES}"</div>
+        <p class="statut-documents-erreur">✗ Échec (${resDirect.status}) : ${erreurTexte.slice(0, 300)}</p>
+      </div>`;
+    }
+  } catch (e) {
+    html += `<div class="immeuble-card" style="padding:1rem;"><div class="statut-documents-erreur">⚠️ ${e.message}</div></div>`;
+  }
+
+  container.innerHTML = html;
+}
+
 async function lancerComparaisonDossiers() {
   if (typeof estConnecte !== 'function' || !estConnecte()) {
     alert("Connecte-toi à OneDrive d'abord.");

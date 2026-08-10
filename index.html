@@ -8,13 +8,13 @@
 <link rel="apple-touch-icon" href="icons/icon-192.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#1f2e28">
-<link rel="stylesheet" href="style.css?v=31">
+<link rel="stylesheet" href="style.css?v=32">
 </head>
 <body>
 
 <header class="app-header">
   <h1>Gestion Loyers</h1>
-  <div class="version-app">v31</div>
+  <div class="version-app">v32</div>
   <div class="subtitle"><span class="scan-dot"></span> <span id="sync-status">Chargement…</span></div>
   <div id="derniere-sauvegarde" class="derniere-sauvegarde"></div>
   <button id="connexion-onedrive" class="btn-connexion">Se connecter à OneDrive</button>
@@ -106,6 +106,31 @@
     <div id="vue-diagnostic-container"></div>
   </div>
 
+  <div id="vue-reinitialisation" style="display:none;">
+    <div class="entete-vue-documents">
+      <h2 style="color:var(--alert-red);">⚠️ Tout réinitialiser</h2>
+    </div>
+
+    <div id="reinit-etape-1" class="immeuble-card" style="padding:1.2rem;">
+      <p style="font-weight:700;">Ceci va :</p>
+      <ul style="line-height:1.8;">
+        <li>Déconnecter OneDrive (reconnexion nécessaire après)</li>
+        <li>Effacer TOUTES les données enregistrées localement sur cet appareil (mois en cache, préférences)</li>
+      </ul>
+      <p>Les données déjà sauvegardées <strong>sur OneDrive ne sont PAS touchées</strong> — seulement ce qui est stocké sur cet appareil.</p>
+      <button class="btn-connexion" onclick="retourVueLoyers()">Annuler</button>
+      <button class="btn-connexion" style="background:var(--alert-red);color:white;" onclick="reinitPasserEtape2()">Je comprends, continuer</button>
+    </div>
+
+    <div id="reinit-etape-2" class="immeuble-card" style="padding:1.2rem;display:none;">
+      <p style="font-weight:700;color:var(--alert-red);">Dernière étape — cette action est irréversible sur cet appareil.</p>
+      <p>Pour confirmer, tape le mot <strong>SUPPRIMER</strong> ci-dessous :</p>
+      <input id="reinit-mot-confirmation" type="text" class="champ-recherche-documents" placeholder="Tape SUPPRIMER" oninput="reinitVerifierMot()" style="margin-bottom:0.8rem;">
+      <button class="btn-connexion" onclick="retourVueLoyers()">Annuler</button>
+      <button id="reinit-bouton-final" class="btn-connexion" style="background:var(--alert-red);color:white;" onclick="reinitExecuter()" disabled>🗑️ Effacer définitivement</button>
+    </div>
+  </div>
+
   <div id="corbeille-container"></div>
 
   <div class="zone-gestion-immeubles">
@@ -126,9 +151,9 @@
 
 </main>
 
-<script src="graph-auth.js?v=31"></script>
-<script src="graph-storage.js?v=31"></script>
-<script src="graph-veros-scan.js?v=31"></script>
-<script src="app.js?v=31"></script>
+<script src="graph-auth.js?v=32"></script>
+<script src="graph-storage.js?v=32"></script>
+<script src="graph-veros-scan.js?v=32"></script>
+<script src="app.js?v=32"></script>
 </body>
 </html>

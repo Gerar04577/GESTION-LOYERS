@@ -966,17 +966,25 @@ async function lancerRechercheOneDrive() {
 }
 
 function reinitialisationComplete() {
-  const premiereConfirmation = confirm(
-    "⚠️ ATTENTION — Ceci va :\n" +
-    "• Déconnecter OneDrive\n" +
-    "• Effacer TOUTES les données enregistrées localement sur cet appareil (tous les mois en cache, connexion, préférences)\n\n" +
-    "Les données déjà sauvegardées sur OneDrive ne sont PAS touchées — seulement ce qui est stocké sur cet appareil.\n\n" +
-    "Continuer ?"
-  );
-  if (!premiereConfirmation) return;
-  const secondeConfirmation = confirm("Vraiment sûr ? Cette action est irréversible sur cet appareil.");
-  if (!secondeConfirmation) return;
+  document.getElementById('immeubles-container').style.display = 'none';
+  document.getElementById('vue-reinitialisation').style.display = 'block';
+  document.getElementById('reinit-etape-1').style.display = 'block';
+  document.getElementById('reinit-etape-2').style.display = 'none';
+  document.getElementById('reinit-mot-confirmation').value = '';
+  document.getElementById('reinit-bouton-final').disabled = true;
+}
 
+function reinitPasserEtape2() {
+  document.getElementById('reinit-etape-1').style.display = 'none';
+  document.getElementById('reinit-etape-2').style.display = 'block';
+}
+
+function reinitVerifierMot() {
+  const saisi = document.getElementById('reinit-mot-confirmation').value.trim().toUpperCase();
+  document.getElementById('reinit-bouton-final').disabled = (saisi !== 'SUPPRIMER');
+}
+
+function reinitExecuter() {
   // Nettoyage PAR PRÉFIXE, pas clé par clé : tout ce qui commence par "gestionLoyers"
   // est effacé, pour ne jamais rien oublier même si une clé est ajoutée plus tard sans
   // penser à mettre à jour cette fonction (c'est ce qui avait posé problème sur un autre projet).

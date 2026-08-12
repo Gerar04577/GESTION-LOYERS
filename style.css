@@ -329,6 +329,12 @@ input[id^="f-montantAssurance-"] {
   font-weight: 700;
   color: var(--accent);
 }
+.champ:has(input[id^="f-montantsVerses-"]) span,
+.champ:has(input[id^="f-montantAssurance-"]) span {
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--accent);
+}
 
 .edit-actions {
   display: flex;

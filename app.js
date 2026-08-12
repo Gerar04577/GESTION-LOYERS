@@ -40,8 +40,13 @@ function calculerLoyerCC(unite) {
   const charges = unite.charges || 0;
   const poubelles = unite.poubelles || 0;
   const internet = unite.internet || 0;
-  const provision = unite.provisionCharges || 0;
-  return brut + charges + poubelles + internet + provision;
+  return brut + charges + poubelles + internet;
+}
+
+// Provision de charges = charges + poubelles + internet (colonnes L, M, N de l'ancien fichier).
+// Affichage uniquement — jamais un champ saisi séparément, jamais ajouté une 2e fois au loyer CC.
+function calculerProvisionCharges(unite) {
+  return (unite.charges || 0) + (unite.poubelles || 0) + (unite.internet || 0);
 }
 
 function calculerFinAssurance(unite) {
@@ -460,7 +465,7 @@ function ajouterUnite(immeubleId) {
     designation: `NOUVELLE UNITÉ ${immeuble.nom.toUpperCase()}`,
     locataire: null,
     loyerBrut: 0, charges: 0, poubelles: 0, internet: 0,
-    provisionCharges: immeuble.provisionCharges ? 0 : null,
+    montantAssurance: 0,
     montantsVerses: 0, prochainPaiement: null,
     commentaires: '', notesInternes: '', aVentiler: false
   };
@@ -508,9 +513,7 @@ function enregistrerEdition(uniteId) {
   u.internet = parseFloat(get('internet')) || 0;
   u.poubellesStatut = get('poubellesStatut') || null;
   u.internetStatut = get('internetStatut') || null;
-  if (found.immeuble.provisionCharges) {
-    u.provisionCharges = parseFloat(get('provisionCharges')) || 0;
-  }
+  u.montantAssurance = parseFloat(get('montantAssurance')) || 0;
   u.montantsVerses = parseFloat(get('montantsVerses')) || 0;
   u.prochainPaiement = get('prochainPaiement') || null;
   u.typeUnite = get('typeUnite') || null;
@@ -590,7 +593,7 @@ function formulaireEdition(immeuble, u) {
         ['oui', 'Oui — il paie'], ['non', 'Non — il ne paie pas']
       ])}
       ${conflitInternet(u) ? `<div class="conflit-warning">⚠️ ${conflitInternet(u)}</div>` : ''}
-      ${immeuble.provisionCharges ? champ('Provision charges (€)', 'provisionCharges', u.id, u.provisionCharges, 'number') : ''}
+      <p class="hint">Provision de charges (calculée, charges + poubelles + internet) : <strong>${calculerProvisionCharges(u).toFixed(2)} €</strong></p>
       ${champ('Montants versés (€)', 'montantsVerses', u.id, u.montantsVerses, 'number')}
       ${champ('Prochain paiement', 'prochainPaiement', u.id, u.prochainPaiement, 'date')}
       <div class="champ-lecture-seule">
@@ -624,6 +627,7 @@ function formulaireEdition(immeuble, u) {
         ['en_ordre', 'En ordre'], ['a_verifier', 'À vérifier']
       ])}
       ${champ('Doc. assurance (référence/note)', 'docAssurance', u.id, u.docAssurance)}
+      ${champ('Montant assurance (€)', 'montantAssurance', u.id, u.montantAssurance, 'number')}
 
       <div class="section-titre">Domiciliation</div>
       ${champ('Ordre permanent (référence/note)', 'domiciliationOrdrePermanent', u.id, u.domiciliationOrdrePermanent)}

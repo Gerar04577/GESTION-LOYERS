@@ -294,15 +294,9 @@ async function chargerMoisCourant(estOuvertureInitiale) {
         afficherStatutSync(`${libelleMois(moisAffiche)} — à jour depuis OneDrive`);
         return;
       }
-      // Ce mois n'existe pas encore dans OneDrive
-      if (estOuvertureInitiale && moisAffiche === moisActuel()) {
-        await demarrerNouveauMois();
-        return;
-      }
-      // Mois passé demandé mais inexistant : rien à afficher
-      appData = { immeubles: [] };
-      render();
-      afficherStatutSync(`Aucune donnée pour ${libelleMois(moisAffiche)}`, true);
+      // Ce mois n'existe pas encore dans OneDrive : le recopier depuis le mois précédent
+      // s'il y en a un (permet de préparer un mois à l'avance, pas seulement le vrai mois en cours)
+      await demarrerNouveauMois();
       return;
     } catch (e) {
       console.error("Erreur OneDrive", e);
@@ -317,12 +311,7 @@ async function chargerMoisCourant(estOuvertureInitiale) {
     render();
     return;
   }
-  if (estOuvertureInitiale && moisAffiche === moisActuel()) {
-    await demarrerNouveauMois();
-    return;
-  }
-  appData = { immeubles: [] };
-  render();
+  await demarrerNouveauMois();
 }
 
 async function demarrerNouveauMois() {
@@ -344,7 +333,15 @@ async function demarrerNouveauMois() {
   }
 
   if (!base) {
-    base = await chargerDonneesInitiales(); // tout premier mois : reprise des données extraites de l'ancien fichier
+    if (tousMoisConnus.length === 0) {
+      base = await chargerDonneesInitiales(); // vraiment aucun historique nulle part : tout premier usage de l'app
+    } else {
+      // de l'historique existe, mais aucun mois avant celui-ci (navigation en arrière avant le début réel)
+      appData = { immeubles: [] };
+      render();
+      afficherStatutSync(`Aucune donnée pour ${libelleMois(moisAffiche)}`, true);
+      return;
+    }
   } else {
     base = creerMoisDepuis(base);
   }

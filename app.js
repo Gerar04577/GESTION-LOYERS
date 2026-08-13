@@ -984,6 +984,45 @@ async function deposerDocumentAssurance(uniteId) {
   }
 }
 
+const GUIDE_SIMPLE = `
+<h3>Gestion Loyers — Mode d'emploi simple</h3>
+<p><strong>1. À l'ouverture</strong> — le bandeau vert en haut confirme que les dernières données sont bien chargées. Un bandeau rouge signale un problème.</p>
+<p><strong>2. Se connecter à OneDrive</strong> — clique sur "Se connecter à OneDrive" une fois, connecte-toi avec ton compte habituel.</p>
+<p><strong>3. Changer de mois</strong> — les flèches ‹ › en haut. La première fois qu'on passe à un nouveau mois, tout est repris automatiquement (locataires, loyers, charges), sauf les montants versés qui repartent à zéro.</p>
+<p><strong>4. Modifier une unité</strong> — clique sur la ligne d'un locataire, modifie les champs, clique sur "Enregistrer" en bas du formulaire.</p>
+<p><strong>5. ⚠️ Toujours sauvegarder</strong> — après avoir modifié une ou plusieurs unités, clique sur le gros bouton doré "Tout enregistrer maintenant". C'est le point le plus important.</p>
+<p><strong>6. Vérifier documents</strong> — scanne OneDrive pour chaque locataire : ✅ vert = trouvé, ❌ rouge = manquant, ➖ gris = pas nécessaire.</p>
+<p><strong>7. Déposer un document</strong> — pour l'assurance à Vannes ou pour certaines formes de garantie, un bouton "📤 Déposer le document" apparaît dans le formulaire : choisis le fichier, clique dessus, il part directement dans le dossier du locataire sur OneDrive.</p>
+<p><strong>8. Dettes locataires</strong> — bouton rouge, liste cumulée des mois déjà terminés (jamais le mois en cours). Ne montrera quelque chose qu'à partir d'octobre.</p>
+<p><strong>9. En cas de gros problème</strong> — "🔍 Diagnostic OneDrive" pour comprendre sans rien casser ; "🗑️ Déconnecter et tout réinitialiser" en dernier recours (efface seulement ce qui est sur cet appareil, jamais ce qui est sur OneDrive ; deux confirmations dont taper SUPPRIMER, pour éviter tout clic accidentel).</p>
+<p><strong>En résumé, 3 réflexes</strong> : vérifier le bandeau vert à l'ouverture, cliquer sur "Enregistrer" après chaque modification, cliquer sur "Tout enregistrer maintenant" avant de fermer.</p>
+`;
+
+const GUIDE_COMPLET = `
+<h3>Gestion Loyers — Structure complète</h3>
+<p><strong>Architecture</strong> — HTML/JS pur, aucune librairie ni CDN. 4 fichiers JS (app.js, graph-auth.js, graph-storage.js, graph-veros-scan.js) + index.html + style.css + data.json. Dépôt GitHub Gerar04577/GESTION-LOYERS, publié sur gerar04577.github.io/GESTION-LOYERS/.</p>
+<p><strong>Stockage OneDrive</strong> — dossier partagé "Immobilier 2025-2026" (le même que VéroS) → "GESTION-LOYERS/historique/" → un fichier JSON par mois (ex. 2026-08.json) + index.json listant tous les mois connus.</p>
+<p><strong>Navigation par identifiant</strong> — depuis la v30, l'app navigue toujours par identifiant OneDrive (jamais par chemin texte), pour fonctionner aussi bien sur ton compte (dossier réel) que sur celui de Véronique/Carine (dossier vu en raccourci).</p>
+<p><strong>Modèle de données par unité</strong> — locataire, loyer brut, charges, poubelles, internet (→ Loyer CC = la somme des 4, Provision de charges = charges+poubelles+internet affiché à part), montants versés, montant assurance (sauf Vannes), garantie (montant + forme : Espèces/Compte bancaire bloqué/Garantie bancaire/CPAS), bail (début/fin, enregistré), documents déposés (référence fichier).</p>
+<p><strong>RÈGLE VERSION</strong> — chaque modification de fichier doit incrémenter le numéro affiché ET les 5 adresses ?v=NN dans index.html (4 scripts + le CSS), sinon risque de cache navigateur.</p>
+<p><strong>Cas particulier Vannes</strong> — assurance payée directement par le locataire : pas de montant à saisir, juste un document à déposer et sauvegarder dans OneDrive (sous-dossier "Assurance" du locataire).</p>
+<p><strong>Dépôt de documents (garantie + assurance Vannes)</strong> — fonctions obtenirRefLocataire (résout le dossier OneDrive du locataire) et televerserFichierDansSousDossier (dépose le fichier, crée le sous-dossier si besoin) dans graph-storage.js / graph-veros-scan.js.</p>
+<p><strong>Dettes locataires</strong> — cumul sur tous les mois strictement PASSÉS (jamais le mois affiché), loyer CC - versé sommé mois après mois ; assurance en montant unique (pas cumulée, sauf Vannes exclue).</p>
+<p><strong>Vérification documents OneDrive</strong> — scan indépendant de VéroS (redondant volontairement) : Bail/EDLE/EDLS/Avenant/Samadhi détectés par nom de fichier réel (jamais un dossier vide). Règles : avenant obligatoire Nimy/PTG/Biche sauf Delise/Delisse, RDC COMMERCIAL, "APPARTEMENT" Biche ; Samadhi obligatoire Nimy/Biche + PTG studios 5-10.</p>
+<p><strong>Outils de diagnostic/gestion</strong> — Gérer les immeubles, Consulter les baux, Comparer noms OneDrive, Diagnostic OneDrive (montre le compte réellement connecté et ce qu'il voit), Déconnecter et tout réinitialiser (nettoyage par préfixe "gestionLoyers*", pas clé par clé, pour ne jamais rien oublier).</p>
+<p><strong>Import VBA</strong> — bouton temporaire "Importer VBA septembre" : charge un JSON pré-extrait par Claude depuis l'ancien fichier Excel, compare champ par champ par id stable, questions Confirmer/Ignorer une par une. À retirer après usage.</p>
+`;
+
+function ouvrirVueAide() {
+  document.getElementById('immeubles-container').style.display = 'none';
+  document.getElementById('vue-aide').style.display = 'block';
+  afficherGuide('simple');
+}
+
+function afficherGuide(quel) {
+  document.getElementById('vue-aide-container').innerHTML = quel === 'simple' ? GUIDE_SIMPLE : GUIDE_COMPLET;
+}
+
 async function ouvrirVueDettes() {
   document.getElementById('immeubles-container').style.display = 'none';
   document.getElementById('vue-dettes').style.display = 'block';

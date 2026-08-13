@@ -8,13 +8,13 @@
 <link rel="apple-touch-icon" href="icons/icon-192.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#1f2e28">
-<link rel="stylesheet" href="style.css?v=41">
+<link rel="stylesheet" href="style.css?v=42">
 </head>
 <body>
 
 <header class="app-header">
   <h1>Gestion Loyers</h1>
-  <div class="version-app">v41</div>
+  <div class="version-app">v42</div>
   <div id="sync-status" class="bandeau-statut">Chargement…</div>
   <div id="derniere-sauvegarde" class="derniere-sauvegarde"></div>
   <button id="connexion-onedrive" class="btn-connexion">Se connecter à OneDrive</button>
@@ -139,6 +139,18 @@
     <div id="vue-dettes-container"></div>
   </div>
 
+  <div id="vue-aide" style="display:none;">
+    <div class="entete-vue-documents">
+      <h2>❓ Mode d'emploi</h2>
+      <button class="btn-connexion" onclick="retourVueLoyers()">← Retour aux loyers</button>
+    </div>
+    <div class="entete-vue-documents" style="margin-top:0.5rem;">
+      <button class="btn-connexion" onclick="afficherGuide('simple')">Guide simple (Véronique)</button>
+      <button class="btn-connexion" onclick="afficherGuide('complet')">Structure complète (Gérard)</button>
+    </div>
+    <div id="vue-aide-container" class="immeuble-card" style="padding:1.2rem;line-height:1.7;"></div>
+  </div>
+
   <div id="corbeille-container"></div>
 
   <div class="zone-gestion-immeubles">
@@ -149,6 +161,7 @@
     <button class="btn-connexion" onclick="document.getElementById('fichier-vba-septembre').click()">Importer VBA septembre (une fois)</button>
     <button class="btn-connexion" onclick="lancerDiagnosticRacine()">🔍 Diagnostic OneDrive</button>
     <button class="btn-connexion" style="background:var(--alert-red);color:white;font-weight:700;" onclick="ouvrirVueDettes()">⚠️ Dettes locataires</button>
+    <button class="btn-connexion" onclick="ouvrirVueAide()">❓ Mode d'emploi</button>
     <button class="btn-connexion" onclick="reinitialisationComplete()" style="background:var(--alert-red);color:white;">🗑️ Déconnecter et tout réinitialiser</button>
     <input type="file" id="fichier-vba-septembre" accept=".json" style="display:none;" onchange="lancerImportVbaSeptembre(this.files[0])">
     <div id="menu-gestion-immeubles" class="menu-gestion-immeubles" style="display:none;"></div>
@@ -160,9 +173,9 @@
 
 </main>
 
-<script src="graph-auth.js?v=41"></script>
-<script src="graph-storage.js?v=41"></script>
-<script src="graph-veros-scan.js?v=41"></script>
-<script src="app.js?v=41"></script>
+<script src="graph-auth.js?v=42"></script>
+<script src="graph-storage.js?v=42"></script>
+<script src="graph-veros-scan.js?v=42"></script>
+<script src="app.js?v=42"></script>
 </body>
 </html>

@@ -8,13 +8,13 @@
 <link rel="apple-touch-icon" href="icons/icon-192.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#1f2e28">
-<link rel="stylesheet" href="style.css?v=36">
+<link rel="stylesheet" href="style.css?v=39">
 </head>
 <body>
 
 <header class="app-header">
   <h1>Gestion Loyers</h1>
-  <div class="version-app">v36</div>
+  <div class="version-app">v39</div>
   <div class="subtitle"><span class="scan-dot"></span> <span id="sync-status">Chargement…</span></div>
   <div id="derniere-sauvegarde" class="derniere-sauvegarde"></div>
   <button id="connexion-onedrive" class="btn-connexion">Se connecter à OneDrive</button>
@@ -131,6 +131,14 @@
     </div>
   </div>
 
+  <div id="vue-dettes" style="display:none;">
+    <div class="entete-vue-documents">
+      <h2>⚠️ Dettes locataires (cumulé)</h2>
+      <button class="btn-connexion" onclick="retourVueLoyers()">← Retour aux loyers</button>
+    </div>
+    <div id="vue-dettes-container"></div>
+  </div>
+
   <div id="corbeille-container"></div>
 
   <div class="zone-gestion-immeubles">
@@ -140,6 +148,7 @@
     <button class="btn-connexion" onclick="lancerComparaisonDossiers()">Comparer noms OneDrive</button>
     <button class="btn-connexion" onclick="document.getElementById('fichier-vba-septembre').click()">Importer VBA septembre (une fois)</button>
     <button class="btn-connexion" onclick="lancerDiagnosticRacine()">🔍 Diagnostic OneDrive</button>
+    <button class="btn-connexion" style="background:var(--alert-red);color:white;font-weight:700;" onclick="ouvrirVueDettes()">⚠️ Dettes locataires</button>
     <button class="btn-connexion" onclick="reinitialisationComplete()" style="background:var(--alert-red);color:white;">🗑️ Déconnecter et tout réinitialiser</button>
     <input type="file" id="fichier-vba-septembre" accept=".json" style="display:none;" onchange="lancerImportVbaSeptembre(this.files[0])">
     <div id="menu-gestion-immeubles" class="menu-gestion-immeubles" style="display:none;"></div>
@@ -151,9 +160,9 @@
 
 </main>
 
-<script src="graph-auth.js?v=36"></script>
-<script src="graph-storage.js?v=36"></script>
-<script src="graph-veros-scan.js?v=36"></script>
-<script src="app.js?v=36"></script>
+<script src="graph-auth.js?v=39"></script>
+<script src="graph-storage.js?v=39"></script>
+<script src="graph-veros-scan.js?v=39"></script>
+<script src="app.js?v=39"></script>
 </body>
 </html>

@@ -291,7 +291,7 @@ async function chargerMoisCourant(estOuvertureInitiale) {
         appData = distant;
         sauvegarderLocal();
         render();
-        afficherStatutSync(`${libelleMois(moisAffiche)} — à jour depuis OneDrive`);
+        afficherStatutSync(`Dernière sauvegarde chargée, vous pouvez travailler. Mais n'oubliez pas de sauvegarder ! (${libelleMois(moisAffiche)}, ${new Date().toLocaleTimeString('fr-BE',{hour:'2-digit',minute:'2-digit'})})`);
         return;
       }
       // Ce mois n'existe pas encore dans OneDrive : le recopier depuis le mois précédent
@@ -510,7 +510,9 @@ function enregistrerEdition(uniteId) {
   u.internet = parseFloat(get('internet')) || 0;
   u.poubellesStatut = get('poubellesStatut') || null;
   u.internetStatut = get('internetStatut') || null;
-  u.montantAssurance = parseFloat(get('montantAssurance')) || 0;
+  if (found.immeuble.id !== 'vannes') {
+    u.montantAssurance = parseFloat(get('montantAssurance')) || 0;
+  }
   u.montantsVerses = parseFloat(get('montantsVerses')) || 0;
   u.prochainPaiement = get('prochainPaiement') || null;
   u.typeUnite = get('typeUnite') || null;
@@ -606,8 +608,14 @@ function formulaireEdition(immeuble, u) {
       <div class="section-titre">Garantie locative</div>
       ${champ('Montant garantie (€)', 'garantieMontant', u.id, u.garantieMontant, 'number')}
       ${champSelect('Forme', 'garantieForme', u.id, u.garantieForme, [
-        ['especes', 'Espèces'], ['compte_bancaire', 'Compte bancaire bloqué']
+        ['especes', 'Espèces'], ['compte_bancaire', 'Compte bancaire bloqué'],
+        ['garantie_bancaire', 'Garantie bancaire'], ['cpas', 'CPAS']
       ])}
+      <div id="bloc-doc-garantie-${u.id}" style="display:${['garantie_bancaire','cpas'].includes(u.garantieForme) ? 'block' : 'none'};">
+        <p>${u.docGarantieFichier ? `✓ Document déposé (${u.docGarantieFichier})` : '✗ Aucun document déposé'}</p>
+        <input type="file" id="f-fichierGarantie-${u.id}" accept="application/pdf,image/*">
+        <button type="button" class="btn-connexion" onclick="deposerDocumentGarantie('${u.id}')">📤 Déposer le document</button>
+      </div>
       ${champ('Preuve garantie (référence/note)', 'preuveGarantie', u.id, u.preuveGarantie)}
 
       <div class="section-titre">Assurance</div>
@@ -624,7 +632,12 @@ function formulaireEdition(immeuble, u) {
         ['en_ordre', 'En ordre'], ['a_verifier', 'À vérifier']
       ])}
       ${champ('Doc. assurance (référence/note)', 'docAssurance', u.id, u.docAssurance)}
-      ${champ('Montant assurance (€)', 'montantAssurance', u.id, u.montantAssurance, 'number')}
+      ${immeuble.id !== 'vannes' ? champ('Montant assurance (€)', 'montantAssurance', u.id, u.montantAssurance, 'number') : `
+        <p class="hint">Vannes : assurance payée directement par le locataire — déposer le document justificatif ci-dessous.</p>
+        <p>${u.docAssuranceFichier ? `✓ Document déposé (${u.docAssuranceFichier})` : '✗ Aucun document déposé'}</p>
+        <input type="file" id="f-fichierAssuranceVannes-${u.id}" accept="application/pdf,image/*">
+        <button type="button" class="btn-connexion" onclick="deposerDocumentAssurance('${u.id}')">📤 Déposer le document</button>
+      `}
 
       <div class="section-titre">Domiciliation</div>
       ${champ('Ordre permanent (référence/note)', 'domiciliationOrdrePermanent', u.id, u.domiciliationOrdrePermanent)}
@@ -925,6 +938,131 @@ function repondreDifferenceVba(confirmer) {
   afficherProchaineDifferenceVba();
 }
 
+async function deposerDocumentGarantie(uniteId) {
+  const champFichier = document.getElementById(`f-fichierGarantie-${uniteId}`);
+  const fichier = champFichier && champFichier.files[0];
+  if (!fichier) { alert("Choisis d'abord un fichier."); return; }
+
+  const trouve = trouverUnite(uniteId);
+  if (!trouve) return;
+  const { immeuble: b, unite: u } = trouve;
+  if (!u.locataire) { alert("Pas de locataire sur cette unité."); return; }
+
+  try {
+    const refLocataire = await obtenirRefLocataire(b.id, u.designation, u.locataire);
+    const nomDepose = await televerserFichierDansSousDossier(refLocataire, 'Garantie', fichier);
+    u.docGarantieFichier = nomDepose;
+    sauvegarder();
+    alert(`Document "${nomDepose}" déposé dans OneDrive (dossier Garantie de ${u.locataire}).`);
+    ouvrirEdition(uniteId);
+  } catch (e) {
+    alert("Échec du dépôt : " + e.message);
+  }
+}
+
+async function deposerDocumentAssurance(uniteId) {
+  const champFichier = document.getElementById(`f-fichierAssuranceVannes-${uniteId}`);
+  const fichier = champFichier && champFichier.files[0];
+  if (!fichier) { alert("Choisis d'abord un fichier."); return; }
+
+  const trouve = trouverUnite(uniteId);
+  if (!trouve) return;
+  const { immeuble: b, unite: u } = trouve;
+  if (!u.locataire) { alert("Pas de locataire sur cette unité."); return; }
+
+  try {
+    const refLocataire = await obtenirRefLocataire(b.id, u.designation, u.locataire);
+    const nomDepose = await televerserFichierDansSousDossier(refLocataire, 'Assurance', fichier);
+    u.docAssuranceFichier = nomDepose;
+    sauvegarder();
+    alert(`Document "${nomDepose}" déposé dans OneDrive (dossier Assurance de ${u.locataire}).`);
+    ouvrirEdition(uniteId);
+  } catch (e) {
+    alert("Échec du dépôt : " + e.message);
+  }
+}
+
+async function ouvrirVueDettes() {
+  document.getElementById('immeubles-container').style.display = 'none';
+  document.getElementById('vue-dettes').style.display = 'block';
+  const container = document.getElementById('vue-dettes-container');
+  container.innerHTML = '<p class="placeholder-note">Calcul en cours…</p>';
+
+  // rassembler tous les mois connus, du plus ancien au plus récent
+  let tousMois = [...new Set([...indexMoisConnus, ...(JSON.parse(localStorage.getItem(STORAGE_KEY_INDEX) || '[]'))])].sort();
+  if (!tousMois.includes(moisAffiche)) tousMois.push(moisAffiche);
+  tousMois.sort();
+
+  // le tout premier mois (ex. septembre) n'a par définition aucun mois précédent à comparer :
+  // la liste de dettes ne peut donc logiquement commencer qu'à partir du 2e mois connu
+  if (tousMois.length < 2) {
+    container.innerHTML = '<p class="placeholder-note">Pas encore assez de mois enregistrés — la liste des dettes ne peut commencer qu\'à partir du 2ᵉ mois (rien à comparer avant).</p>';
+    return;
+  }
+
+  // dette par unité : { loyer: cumul sur tous les mois, assurance: montant du dernier mois où impayée }
+  const dettesParUnite = {};
+
+  for (const mois of tousMois) {
+    let donnees;
+    if (mois === moisAffiche) {
+      donnees = appData;
+    } else {
+      donnees = typeof estConnecte === 'function' && estConnecte()
+        ? await chargerMoisOneDrive(mois).catch(() => null)
+        : JSON.parse(localStorage.getItem(STORAGE_KEY_PREFIX + mois) || 'null');
+    }
+    if (!donnees || !donnees.immeubles) continue;
+
+    for (const b of donnees.immeubles) {
+      for (const u of b.unites) {
+        if (!u.locataire || u.inoccupe) continue;
+        const cle = `${b.id}__${u.designation}__${u.locataire}`;
+        if (!dettesParUnite[cle]) {
+          dettesParUnite[cle] = { immeuble: b.nom, unite: u.designation, locataire: u.locataire, loyer: 0, assurance: 0 };
+        }
+        const loyerDu = calculerLoyerCC(u) - (u.montantsVerses || 0);
+        if (loyerDu > 0) dettesParUnite[cle].loyer += loyerDu;
+
+        // assurance : montant unique, pas cumulé — le dernier mois connu fait foi (elle se reporte telle quelle)
+        if (b.id !== 'vannes' && u.assuranceDue && u.assuranceStatut !== 'en_ordre') {
+          dettesParUnite[cle].assurance = u.montantAssurance || 0;
+        } else if (b.id !== 'vannes') {
+          dettesParUnite[cle].assurance = 0; // remise en ordre depuis, on efface la dette
+        }
+      }
+    }
+  }
+
+  const lignes = Object.values(dettesParUnite).filter(d => d.loyer > 0 || d.assurance > 0);
+  let totalLoyer = 0, totalAssurance = 0;
+  lignes.forEach(d => { totalLoyer += d.loyer; totalAssurance += d.assurance; });
+  const totalGeneral = totalLoyer + totalAssurance;
+
+  if (!lignes.length) {
+    container.innerHTML = '<p class="placeholder-note">✓ Aucune dette — tout est en ordre.</p>';
+    return;
+  }
+
+  container.innerHTML = `
+    <div class="totaux-generaux" style="margin-bottom:1rem;">
+      <div class="total-item"><span>Total loyers dus</span><strong>${totalLoyer.toFixed(2)} €</strong></div>
+      <div class="total-item"><span>Total assurances dues</span><strong>${totalAssurance.toFixed(2)} €</strong></div>
+      <div class="total-item"><span>Total général</span><strong style="color:var(--alert-red);">${totalGeneral.toFixed(2)} €</strong></div>
+    </div>
+    <table class="table-comparaison">
+      <thead><tr><th>Immeuble</th><th>Unité</th><th>Locataire</th><th>Loyer dû (cumulé)</th><th>Assurance due</th></tr></thead>
+      <tbody>
+        ${lignes.map(d => `<tr>
+          <td>${d.immeuble}</td><td>${d.unite}</td><td>${d.locataire}</td>
+          <td>${d.loyer > 0 ? d.loyer.toFixed(2) + ' €' : '—'}</td>
+          <td>${d.assurance > 0 ? d.assurance.toFixed(2) + ' €' : '—'}</td>
+        </tr>`).join('')}
+      </tbody>
+    </table>
+  `;
+}
+
 async function ouvrirVueOneDrive() {
   if (typeof estConnecte !== 'function' || !estConnecte()) {
     alert("Connecte-toi à OneDrive d'abord.");
@@ -1219,6 +1357,13 @@ function render() {
         if (champDebut && champFin) {
           champDebut.addEventListener('change', () => {
             if (champDebut.value) champFin.value = calculerFinParDefaut(champDebut.value);
+          });
+        }
+        const champGarantieForme = formEl.querySelector(`#f-garantieForme-${u.id}`);
+        const blocDocGarantie = formEl.querySelector(`#bloc-doc-garantie-${u.id}`);
+        if (champGarantieForme && blocDocGarantie) {
+          champGarantieForme.addEventListener('change', () => {
+            blocDocGarantie.style.display = ['garantie_bancaire', 'cpas'].includes(champGarantieForme.value) ? 'block' : 'none';
           });
         }
         continue;

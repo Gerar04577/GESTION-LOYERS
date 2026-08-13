@@ -524,7 +524,9 @@ function enregistrerEdition(uniteId) {
   u.garantieMontant = parseFloat(get('garantieMontant')) || 0;
   u.garantieForme = get('garantieForme') || null;
   u.preuveGarantie = get('preuveGarantie') || '';
-  u.docAssurance = get('docAssurance') || '';
+  if (found.immeuble.id !== 'vannes') {
+    u.docAssurance = get('docAssurance') || '';
+  }
   u.domiciliationOrdrePermanent = get('domiciliationOrdrePermanent') || '';
   u.commentaires = get('commentaires') || '';
   u.notesInternes = get('notesInternes') || '';
@@ -611,7 +613,7 @@ function formulaireEdition(immeuble, u) {
         ['especes', 'Espèces'], ['compte_bancaire', 'Compte bancaire bloqué'],
         ['garantie_bancaire', 'Garantie bancaire'], ['cpas', 'CPAS']
       ])}
-      <div id="bloc-doc-garantie-${u.id}" style="display:${['garantie_bancaire','cpas'].includes(u.garantieForme) ? 'block' : 'none'};">
+      <div id="bloc-doc-garantie-${u.id}" style="display:${['compte_bancaire','garantie_bancaire','cpas'].includes(u.garantieForme) ? 'block' : 'none'};">
         <p>${u.docGarantieFichier ? `✓ Document déposé (${u.docGarantieFichier})` : '✗ Aucun document déposé'}</p>
         <input type="file" id="f-fichierGarantie-${u.id}" accept="application/pdf,image/*">
         <button type="button" class="btn-connexion" onclick="deposerDocumentGarantie('${u.id}')">📤 Déposer le document</button>
@@ -631,7 +633,7 @@ function formulaireEdition(immeuble, u) {
       ${champSelect('Statut assurance', 'assuranceStatut', u.id, u.assuranceStatut, [
         ['en_ordre', 'En ordre'], ['a_verifier', 'À vérifier']
       ])}
-      ${champ('Doc. assurance (référence/note)', 'docAssurance', u.id, u.docAssurance)}
+      ${immeuble.id !== 'vannes' ? champ('Doc. assurance (référence/note)', 'docAssurance', u.id, u.docAssurance) : ''}
       ${immeuble.id !== 'vannes' ? champ('Montant assurance (€)', 'montantAssurance', u.id, u.montantAssurance, 'number') : `
         <p class="hint">Vannes : assurance payée directement par le locataire — déposer le document justificatif ci-dessous.</p>
         <p>${u.docAssuranceFichier ? `✓ Document déposé (${u.docAssuranceFichier})` : '✗ Aucun document déposé'}</p>
@@ -990,28 +992,23 @@ async function ouvrirVueDettes() {
 
   // rassembler tous les mois connus, du plus ancien au plus récent
   let tousMois = [...new Set([...indexMoisConnus, ...(JSON.parse(localStorage.getItem(STORAGE_KEY_INDEX) || '[]'))])].sort();
-  if (!tousMois.includes(moisAffiche)) tousMois.push(moisAffiche);
-  tousMois.sort();
 
-  // le tout premier mois (ex. septembre) n'a par définition aucun mois précédent à comparer :
-  // la liste de dettes ne peut donc logiquement commencer qu'à partir du 2e mois connu
-  if (tousMois.length < 2) {
-    container.innerHTML = '<p class="placeholder-note">Pas encore assez de mois enregistrés — la liste des dettes ne peut commencer qu\'à partir du 2ᵉ mois (rien à comparer avant).</p>';
+  // le mois AFFICHÉ n'est jamais compté : un mois en cours n'est pas "en retard",
+  // il n'est simplement pas encore terminé — seuls les mois strictement PASSÉS comptent
+  const moisPasses = tousMois.filter(m => m < moisAffiche);
+
+  if (!moisPasses.length) {
+    container.innerHTML = '<p class="placeholder-note">Pas encore de mois entièrement passé à comparer — la liste des dettes ne peut commencer qu\'une fois qu\'au moins un mois précédent est terminé.</p>';
     return;
   }
 
-  // dette par unité : { loyer: cumul sur tous les mois, assurance: montant du dernier mois où impayée }
+  // dette par unité : { loyer: cumul sur tous les mois passés, assurance: montant du dernier mois passé où impayée }
   const dettesParUnite = {};
 
-  for (const mois of tousMois) {
-    let donnees;
-    if (mois === moisAffiche) {
-      donnees = appData;
-    } else {
-      donnees = typeof estConnecte === 'function' && estConnecte()
-        ? await chargerMoisOneDrive(mois).catch(() => null)
-        : JSON.parse(localStorage.getItem(STORAGE_KEY_PREFIX + mois) || 'null');
-    }
+  for (const mois of moisPasses) {
+    const donnees = typeof estConnecte === 'function' && estConnecte()
+      ? await chargerMoisOneDrive(mois).catch(() => null)
+      : JSON.parse(localStorage.getItem(STORAGE_KEY_PREFIX + mois) || 'null');
     if (!donnees || !donnees.immeubles) continue;
 
     for (const b of donnees.immeubles) {
@@ -1363,7 +1360,7 @@ function render() {
         const blocDocGarantie = formEl.querySelector(`#bloc-doc-garantie-${u.id}`);
         if (champGarantieForme && blocDocGarantie) {
           champGarantieForme.addEventListener('change', () => {
-            blocDocGarantie.style.display = ['garantie_bancaire', 'cpas'].includes(champGarantieForme.value) ? 'block' : 'none';
+            blocDocGarantie.style.display = ['compte_bancaire', 'garantie_bancaire', 'cpas'].includes(champGarantieForme.value) ? 'block' : 'none';
           });
         }
         continue;

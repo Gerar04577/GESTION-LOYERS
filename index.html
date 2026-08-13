@@ -8,13 +8,13 @@
 <link rel="apple-touch-icon" href="icons/icon-192.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#1f2e28">
-<link rel="stylesheet" href="style.css?v=42">
+<link rel="stylesheet" href="style.css?v=43">
 </head>
 <body>
 
 <header class="app-header">
   <h1>Gestion Loyers</h1>
-  <div class="version-app">v42</div>
+  <div class="version-app">v43</div>
   <div id="sync-status" class="bandeau-statut">Chargement…</div>
   <div id="derniere-sauvegarde" class="derniere-sauvegarde"></div>
   <button id="connexion-onedrive" class="btn-connexion">Se connecter à OneDrive</button>
@@ -154,14 +154,14 @@
   <div id="corbeille-container"></div>
 
   <div class="zone-gestion-immeubles">
-    <button class="btn-connexion" onclick="basculerMenuGestionImmeubles()">Gérer les immeubles</button>
-    <button class="btn-connexion" onclick="ouvrirVueOneDrive()">Consulter les baux</button>
-    <button class="btn-connexion" onclick="lancerScanDocuments()">Vérifier documents</button>
-    <button class="btn-connexion" onclick="lancerComparaisonDossiers()">Comparer noms OneDrive</button>
-    <button class="btn-connexion" onclick="document.getElementById('fichier-vba-septembre').click()">Importer VBA septembre (une fois)</button>
-    <button class="btn-connexion" onclick="lancerDiagnosticRacine()">🔍 Diagnostic OneDrive</button>
+    <button class="btn-connexion" style="background:#c9d9e8;color:#2c3e4a;border-color:#a8c0d4;" onclick="basculerMenuGestionImmeubles()">Gérer les immeubles</button>
+    <button class="btn-connexion" style="background:#d4e8c9;color:#33472e;border-color:#b5d4a4;" onclick="ouvrirVueOneDrive()">Consulter les baux</button>
+    <button class="btn-connexion" style="background:#f0e0c4;color:#5a4a24;border-color:#e0c896;" onclick="lancerScanDocuments()">Vérifier documents</button>
+    <button class="btn-connexion" style="background:#e8d4e8;color:#4a2e4a;border-color:#d4b5d4;" onclick="lancerComparaisonDossiers()">Comparer noms OneDrive</button>
+    <button class="btn-connexion" style="background:#f0d4c9;color:#5a3524;border-color:#e0b5a0;" onclick="document.getElementById('fichier-vba-septembre').click()">Importer VBA septembre (une fois)</button>
+    <button class="btn-connexion" style="background:#c9e8e0;color:#264a42;border-color:#a0d4c4;" onclick="lancerDiagnosticRacine()">🔍 Diagnostic OneDrive</button>
     <button class="btn-connexion" style="background:var(--alert-red);color:white;font-weight:700;" onclick="ouvrirVueDettes()">⚠️ Dettes locataires</button>
-    <button class="btn-connexion" onclick="ouvrirVueAide()">❓ Mode d'emploi</button>
+    <button class="btn-connexion" style="background:#f0e8c4;color:#5a5224;border-color:#e0d496;" onclick="ouvrirVueAide()">❓ Mode d'emploi</button>
     <button class="btn-connexion" onclick="reinitialisationComplete()" style="background:var(--alert-red);color:white;">🗑️ Déconnecter et tout réinitialiser</button>
     <input type="file" id="fichier-vba-septembre" accept=".json" style="display:none;" onchange="lancerImportVbaSeptembre(this.files[0])">
     <div id="menu-gestion-immeubles" class="menu-gestion-immeubles" style="display:none;"></div>
@@ -173,9 +173,9 @@
 
 </main>
 
-<script src="graph-auth.js?v=42"></script>
-<script src="graph-storage.js?v=42"></script>
-<script src="graph-veros-scan.js?v=42"></script>
-<script src="app.js?v=42"></script>
+<script src="graph-auth.js?v=43"></script>
+<script src="graph-storage.js?v=43"></script>
+<script src="graph-veros-scan.js?v=43"></script>
+<script src="app.js?v=43"></script>
 </body>
 </html>

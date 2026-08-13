@@ -291,7 +291,7 @@ async function chargerMoisCourant(estOuvertureInitiale) {
         appData = distant;
         sauvegarderLocal();
         render();
-        afficherStatutSync(`Dernière sauvegarde chargée, vous pouvez travailler. Mais n'oubliez pas de sauvegarder ! (${libelleMois(moisAffiche)}, ${new Date().toLocaleTimeString('fr-BE',{hour:'2-digit',minute:'2-digit'})})`);
+        afficherStatutSync(`Dernière sauvegarde chargée, vous pouvez travailler. Mais n'oubliez pas de sauvegarder\u00A0! (${libelleMois(moisAffiche)}, ${new Date().toLocaleTimeString('fr-BE',{hour:'2-digit',minute:'2-digit'})})`);
         return;
       }
       // Ce mois n'existe pas encore dans OneDrive : le recopier depuis le mois précédent

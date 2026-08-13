@@ -163,6 +163,23 @@ header.app-header .subtitle {
   margin-left: auto;
   margin-right: auto;
 }
+.bandeau-statut {
+  background: #2e7d4f;
+  color: white;
+  font-weight: 700;
+  font-size: 1rem;
+  text-align: center;
+  padding: 0.85rem 1rem;
+  margin: 0.9rem 0.9rem 0;
+  border-radius: 10px;
+  line-height: 1.5;
+  max-width: 720px;
+  margin-left: auto;
+  margin-right: auto;
+}
+.bandeau-statut.erreur {
+  background: var(--alert-red);
+}
 .alerte-enregistrement button {
   display: block;
   margin: 0.7rem auto 0;

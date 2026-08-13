@@ -218,7 +218,7 @@ function afficherStatutSync(message, erreur = false) {
   const el = document.getElementById('sync-status');
   if (!el) return;
   el.textContent = message;
-  el.style.color = erreur ? '#fbb' : '#c9d1cb';
+  el.classList.toggle('erreur', !!erreur);
 }
 
 function avancerDUnMois(dateStr) {

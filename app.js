@@ -513,7 +513,7 @@ function enregistrerEdition(uniteId) {
   if (found.immeuble.id !== 'vannes') {
     u.montantAssurance = parseFloat(get('montantAssurance')) || 0;
   }
-  u.montantsVerses = parseFloat(get('montantsVerses')) || 0;
+  u.montantsVerses = u.inoccupe ? 0 : (parseFloat(get('montantsVerses')) || 0);
   u.prochainPaiement = get('prochainPaiement') || null;
   u.typeUnite = get('typeUnite') || null;
   u.debutBail = get('debutBail') || null;
@@ -598,8 +598,12 @@ function formulaireEdition(immeuble, u) {
       ${champ('Montants versés (€)', 'montantsVerses', u.id, u.montantsVerses, 'number')}
       ${champ('Prochain paiement', 'prochainPaiement', u.id, u.prochainPaiement, 'date')}
       <div class="champ-lecture-seule">
+        <span>Loyer CC (loyer brut + charges + poubelles + internet)</span>
+        <span id="f-loyerCCAffiche-${u.id}">${formatMontant(calculerLoyerCC(u))}</span>
+      </div>
+      <div class="champ-lecture-seule">
         <span>Reste en attente</span>
-        <span>${formatMontant(resteEnAttente(u))}</span>
+        <span id="f-resteEnAttenteAffiche-${u.id}">${formatMontant(resteEnAttente(u))}</span>
       </div>
 
       <div class="section-titre">Bail</div>
@@ -1401,6 +1405,31 @@ function render() {
           champGarantieForme.addEventListener('change', () => {
             blocDocGarantie.style.display = ['compte_bancaire', 'garantie_bancaire', 'cpas'].includes(champGarantieForme.value) ? 'block' : 'none';
           });
+        }
+        const champVerse = formEl.querySelector(`#f-montantsVerses-${u.id}`);
+        const afficheAttente = formEl.querySelector(`#f-resteEnAttenteAffiche-${u.id}`);
+        const afficheLoyerCC = formEl.querySelector(`#f-loyerCCAffiche-${u.id}`);
+        const champsMontant = ['loyerBrut', 'charges', 'poubelles', 'internet'].map(n => formEl.querySelector(`#f-${n}-${u.id}`));
+        if (champVerse && afficheAttente) {
+          const recalculerAttenteAffichee = () => {
+            const brut = parseFloat(champsMontant[0] && champsMontant[0].value) || 0;
+            const charges = parseFloat(champsMontant[1] && champsMontant[1].value) || 0;
+            const poubelles = parseFloat(champsMontant[2] && champsMontant[2].value) || 0;
+            const internet = parseFloat(champsMontant[3] && champsMontant[3].value) || 0;
+            const inoccupeCoche = formEl.querySelector(`#f-inoccupe-${u.id}`);
+            const estInoccupe = !!(inoccupeCoche && inoccupeCoche.checked);
+            const cc = estInoccupe ? 0 : (brut + charges + poubelles + internet);
+            // un versement n'a aucun sens sur une unité inoccupée : on le neutralise visuellement
+            champVerse.disabled = estInoccupe;
+            const verse = estInoccupe ? 0 : (parseFloat(champVerse.value) || 0);
+            if (afficheLoyerCC) afficheLoyerCC.textContent = formatMontant(cc);
+            afficheAttente.textContent = formatMontant(cc - verse);
+          };
+          champVerse.addEventListener('input', recalculerAttenteAffichee);
+          champsMontant.forEach(c => { if (c) c.addEventListener('input', recalculerAttenteAffichee); });
+          const champInoccupe = formEl.querySelector(`#f-inoccupe-${u.id}`);
+          if (champInoccupe) champInoccupe.addEventListener('change', recalculerAttenteAffichee);
+          recalculerAttenteAffichee(); // applique tout de suite l'état correct (champ désactivé si déjà inoccupée)
         }
         continue;
       }

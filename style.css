@@ -340,6 +340,15 @@ main {
   outline: 2px solid var(--accent-light);
   outline-offset: 1px;
 }
+.champ-lecture-seule span[id^="f-loyerCCAffiche-"] {
+  font-size: 1.6rem !important;
+  font-weight: 700 !important;
+  color: #2e7d4f !important;
+}
+span[id^="f-resteEnAttenteAffiche-"].trop-percu {
+  color: #2e7d4f !important;
+  font-weight: 700 !important;
+}
 input[id^="f-montantsVerses-"],
 input[id^="f-montantAssurance-"] {
   font-size: 1.6rem;

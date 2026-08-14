@@ -601,6 +601,10 @@ function formulaireEdition(immeuble, u) {
       ${champ('Montants versés (€)', 'montantsVerses', u.id, u.montantsVerses, 'number')}
       ${champ('Prochain paiement', 'prochainPaiement', u.id, u.prochainPaiement, 'date')}
       <div class="champ-lecture-seule">
+        <span>Statut</span>
+        <span id="f-statutAffiche-${u.id}"></span>
+      </div>
+      <div class="champ-lecture-seule">
         <span>Loyer CC (loyer brut + charges + poubelles + internet)</span>
         <span id="f-loyerCCAffiche-${u.id}">${formatMontant(calculerLoyerCC(u))}</span>
       </div>
@@ -1413,6 +1417,7 @@ function render() {
         const afficheAttente = formEl.querySelector(`#f-resteEnAttenteAffiche-${u.id}`);
         const afficheLoyerCC = formEl.querySelector(`#f-loyerCCAffiche-${u.id}`);
         const afficheTotalImmeuble = details.querySelector(`#total-immeuble-${immeuble.id}`);
+        const afficheStatut = formEl.querySelector(`#f-statutAffiche-${u.id}`);
         const champsMontant = ['loyerBrut', 'charges', 'poubelles', 'internet'].map(n => formEl.querySelector(`#f-${n}-${u.id}`));
         if (champVerse && afficheAttente) {
           const recalculerAttenteAffichee = () => {
@@ -1436,6 +1441,23 @@ function render() {
             } else {
               afficheAttente.textContent = formatMontant(solde);
               afficheAttente.classList.remove('trop-percu');
+            }
+
+            // le statut (retard/OK/inoccupé) affiché dans le formulaire lui-même doit suivre en direct
+            if (afficheStatut) {
+              if (estInoccupe) {
+                afficheStatut.innerHTML = '<span class="badge inoccupe">Inoccupé</span>';
+              } else if (!u.locataire) {
+                afficheStatut.innerHTML = '';
+              } else if (solde > 0) {
+                const echeance = u.prochainPaiement ? new Date(u.prochainPaiement) : null;
+                const joursEcart = echeance ? (new Date() - echeance) / (1000 * 60 * 60 * 24) : -1;
+                if (joursEcart >= JOURS_SEUIL_ROUGE) afficheStatut.innerHTML = '<span class="badge retard-rouge">Retard 4j+</span>';
+                else if (joursEcart >= JOURS_SEUIL_ORANGE) afficheStatut.innerHTML = '<span class="badge retard-orange">Retard 2j+</span>';
+                else afficheStatut.innerHTML = '<span class="badge ok">OK</span>';
+              } else {
+                afficheStatut.innerHTML = '<span class="badge ok">OK</span>';
+              }
             }
 
             // le total de l'immeuble affiché en haut doit aussi suivre en direct, pas seulement après Enregistrer
@@ -1475,8 +1497,8 @@ function render() {
           <div class="locataire">${u.locataire || 'Logement libre'}</div>
           ${attente > 0 ? `<div class="attente-unite">En attente : ${formatMontant(attente)}</div>` : ''}
         </div>
-        <div class="montant">
-          ${u.aVentiler && !u.inoccupe ? '<span title="Loyer non encore ventilé">*</span> ' : ''}${formatMontant(loyerCC)}
+        <div class="montant" id="montant-ligne-${u.id}">
+          ${u.aVentiler && !u.inoccupe && u.locataire ? '<span title="Loyer non encore ventilé">*</span> ' : ''}${formatMontant(loyerCC)}
           ${u.inoccupe ? '<span class="badge inoccupe">Inoccupé</span>' : ''}
           ${!u.inoccupe && retard === 'rouge' ? '<span class="badge retard-rouge">Retard 4j+</span>' : ''}
           ${!u.inoccupe && retard === 'orange' ? '<span class="badge retard-orange">Retard 2j+</span>' : ''}

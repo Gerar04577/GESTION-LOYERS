@@ -118,22 +118,25 @@ function formatMontant(n) {
 }
 
 function calculerTotauxImmeuble(immeuble) {
-  let du = 0, verse = 0;
+  let du = 0, verse = 0, attente = 0;
   for (const u of immeuble.unites) {
-    du += calculerLoyerCC(u);
+    const cc = calculerLoyerCC(u);
+    du += cc;
     verse += (u.montantsVerses || 0);
+    attente += Math.max(0, cc - (u.montantsVerses || 0)); // un trop-perçu ne doit JAMAIS réduire le total dû par les autres
   }
-  return { du, verse, attente: du - verse };
+  return { du, verse, attente };
 }
 
 function calculerTotauxGeneraux(data) {
-  let du = 0, verse = 0;
+  let du = 0, verse = 0, attente = 0;
   for (const immeuble of data.immeubles) {
     const t = calculerTotauxImmeuble(immeuble);
     du += t.du;
     verse += t.verse;
+    attente += t.attente; // t.attente est déjà la somme des vraies dettes positives, jamais un net compensé
   }
-  return { du, verse, attente: du - verse };
+  return { du, verse, attente };
 }
 
 // ---------- Persistance (locale + OneDrive), par mois ----------
@@ -1380,7 +1383,7 @@ function render() {
       <span class="nom">${immeuble.nom}</span>
       <span class="sous-total">
         ${formatMontant(t.du)} — ${immeuble.unites.length} unité(s)
-        ${t.attente > 0 ? `<br><span class="attente-immeuble">En attente : ${formatMontant(t.attente)}</span>` : ''}
+        <span id="total-immeuble-${immeuble.id}">${t.attente > 0 ? `<br><span class="attente-immeuble">En attente : ${formatMontant(t.attente)}</span>` : ''}</span>
       </span>
     `;
     details.appendChild(summary);
@@ -1409,6 +1412,7 @@ function render() {
         const champVerse = formEl.querySelector(`#f-montantsVerses-${u.id}`);
         const afficheAttente = formEl.querySelector(`#f-resteEnAttenteAffiche-${u.id}`);
         const afficheLoyerCC = formEl.querySelector(`#f-loyerCCAffiche-${u.id}`);
+        const afficheTotalImmeuble = details.querySelector(`#total-immeuble-${immeuble.id}`);
         const champsMontant = ['loyerBrut', 'charges', 'poubelles', 'internet'].map(n => formEl.querySelector(`#f-${n}-${u.id}`));
         if (champVerse && afficheAttente) {
           const recalculerAttenteAffichee = () => {
@@ -1423,7 +1427,31 @@ function render() {
             champVerse.disabled = estInoccupe;
             const verse = estInoccupe ? 0 : (parseFloat(champVerse.value) || 0);
             if (afficheLoyerCC) afficheLoyerCC.textContent = formatMontant(cc);
-            afficheAttente.textContent = formatMontant(cc - verse);
+
+            const solde = cc - verse;
+            if (solde < 0) {
+              // trop-perçu : affiché à part, en vert/gras — ne compte jamais comme une dette
+              afficheAttente.textContent = `Trop perçu : ${formatMontant(-solde)}`;
+              afficheAttente.classList.add('trop-percu');
+            } else {
+              afficheAttente.textContent = formatMontant(solde);
+              afficheAttente.classList.remove('trop-percu');
+            }
+
+            // le total de l'immeuble affiché en haut doit aussi suivre en direct, pas seulement après Enregistrer
+            if (afficheTotalImmeuble) {
+              let totalAttente = 0;
+              for (const autre of immeuble.unites) {
+                if (autre.id === u.id) {
+                  totalAttente += Math.max(0, solde); // la valeur en cours de saisie, pas encore enregistrée
+                } else {
+                  totalAttente += Math.max(0, calculerLoyerCC(autre) - (autre.montantsVerses || 0));
+                }
+              }
+              afficheTotalImmeuble.innerHTML = totalAttente > 0
+                ? `<br><span class="attente-immeuble">En attente : ${formatMontant(totalAttente)}</span>`
+                : '';
+            }
           };
           champVerse.addEventListener('input', recalculerAttenteAffichee);
           champsMontant.forEach(c => { if (c) c.addEventListener('input', recalculerAttenteAffichee); });

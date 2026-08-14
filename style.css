@@ -36,7 +36,7 @@ body {
 header.app-header {
   background: var(--ink);
   color: var(--paper);
-  padding: 1.1rem 1.2rem 1.3rem;
+  padding: 0.6rem 1.2rem 0.7rem;
   position: sticky;
   top: 0;
   z-index: 10;

@@ -530,6 +530,7 @@ function enregistrerEdition(uniteId) {
   if (found.immeuble.id !== 'vannes') {
     u.docAssurance = get('docAssurance') || '';
   }
+  lireSousLocation(u, get);
   u.domiciliationOrdrePermanent = get('domiciliationOrdrePermanent') || '';
   u.commentaires = get('commentaires') || '';
   u.notesInternes = get('notesInternes') || '';
@@ -654,6 +655,8 @@ function formulaireEdition(immeuble, u) {
 
       <div class="section-titre">Domiciliation</div>
       ${champ('Ordre permanent (référence/note)', 'domiciliationOrdrePermanent', u.id, u.domiciliationOrdrePermanent)}
+
+      ${blocSousLocation(u)}
 
       <div class="section-titre">Notes</div>
       ${champTexteLong('Commentaires', 'commentaires', u.id, u.commentaires)}
@@ -1406,6 +1409,7 @@ function render() {
             if (champDebut.value) champFin.value = calculerFinParDefaut(champDebut.value);
           });
         }
+        brancherSousLocation(formEl, u);
         const champGarantieForme = formEl.querySelector(`#f-garantieForme-${u.id}`);
         const blocDocGarantie = formEl.querySelector(`#bloc-doc-garantie-${u.id}`);
         if (champGarantieForme && blocDocGarantie) {

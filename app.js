@@ -897,9 +897,10 @@ const LABELS_CHAMPS_VBA = {
   garantieMontant: 'Garantie (€)',
   garantieForme: 'Forme de garantie',
   preuveGarantie: 'Preuve garantie',
+  debutBail: 'Début du bail',
 };
 
-const CHAMPS_TEXTE_VBA = ['locataire', 'garantieForme', 'preuveGarantie'];
+const CHAMPS_TEXTE_VBA = ['locataire', 'garantieForme', 'preuveGarantie', 'debutBail'];
 
 let listeDifferencesVba = [];
 let indexDifferenceVbaEnCours = 0;
@@ -929,6 +930,14 @@ function demarrerRevueVbaSeptembre(donneesVba) {
   afficherProchaineDifferenceVba();
 }
 
+const CHAMPS_DATE_VBA = ['debutBail'];
+
+function formaterDateAffichage(iso) {
+  if (!iso || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso;
+  const [annee, mois, jour] = iso.split('-');
+  return `${jour}/${mois}/${annee}`;
+}
+
 function afficherProchaineDifferenceVba() {
   const container = document.getElementById('vue-import-vba-container');
   if (indexDifferenceVbaEnCours >= listeDifferencesVba.length) {
@@ -938,10 +947,13 @@ function afficherProchaineDifferenceVba() {
   }
   const d = listeDifferencesVba[indexDifferenceVbaEnCours];
   const label = LABELS_CHAMPS_VBA[d.champ];
+  const estDate = CHAMPS_DATE_VBA.includes(d.champ);
+  const affActuelle = estDate ? formaterDateAffichage(d.valeurActuelle) : d.valeurActuelle;
+  const affVba = estDate ? formaterDateAffichage(d.valeurVba) : d.valeurVba;
   container.innerHTML = `
     <div class="immeuble-card" style="padding:1rem;">
       <div class="designation">${d.designation}</div>
-      <p>${label} : <strong>${d.valeurActuelle ?? '(vide)'}</strong> → <strong>${d.valeurVba}</strong></p>
+      <p>${label} : <strong>${affActuelle ?? '(vide)'}</strong> → <strong>${affVba}</strong></p>
       <p class="placeholder-note">Différence ${indexDifferenceVbaEnCours + 1} sur ${listeDifferencesVba.length}</p>
       <button class="btn btn-primary" onclick="repondreDifferenceVba(true)">✓ Confirmer le changement</button>
       <button class="btn" onclick="repondreDifferenceVba(false)">✗ Ignorer</button>

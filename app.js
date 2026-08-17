@@ -898,6 +898,7 @@ const LABELS_CHAMPS_VBA = {
   garantieForme: 'Forme de garantie',
   preuveGarantie: 'Preuve garantie',
   debutBail: 'Début du bail',
+  montantAssurance: 'Montant assurance (€)',
 };
 
 const CHAMPS_TEXTE_VBA = ['locataire', 'garantieForme', 'preuveGarantie', 'debutBail'];

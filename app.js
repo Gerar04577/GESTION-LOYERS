@@ -894,7 +894,12 @@ const LABELS_CHAMPS_VBA = {
   charges: 'Charges (€)',
   poubelles: 'Poubelles (€)',
   internet: 'Internet (€)',
+  garantieMontant: 'Garantie (€)',
+  garantieForme: 'Forme de garantie',
+  preuveGarantie: 'Preuve garantie',
 };
+
+const CHAMPS_TEXTE_VBA = ['locataire', 'garantieForme', 'preuveGarantie'];
 
 let listeDifferencesVba = [];
 let indexDifferenceVbaEnCours = 0;
@@ -909,8 +914,8 @@ function demarrerRevueVbaSeptembre(donneesVba) {
         if (!(champ in entreeVba)) continue;
         const valeurVba = entreeVba[champ];
         const valeurActuelle = u[champ];
-        const different = champ === 'locataire'
-          ? normaliserNom(valeurVba) !== normaliserNom(valeurActuelle || '')
+        const different = CHAMPS_TEXTE_VBA.includes(champ)
+          ? normaliserNom(valeurVba || '') !== normaliserNom(valeurActuelle || '')
           : Number(valeurVba) !== Number(valeurActuelle || 0);
         if (different) {
           listeDifferencesVba.push({ uniteId: u.id, designation: u.designation, champ, valeurActuelle, valeurVba });

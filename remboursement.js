@@ -19,8 +19,18 @@ async function ouvrirVueRemboursement() {
   const container = document.getElementById('vue-remboursement-container');
   container.innerHTML = '<p class="placeholder-note">Calcul en cours…</p>';
 
-  donneesRemboursementCalculees = await calculerListeRemboursement();
-  afficherListeRemboursement();
+  // sécurité : ne jamais rester bloqué indéfiniment sur "Calcul en cours" si
+  // OneDrive répond très lentement ou pas du tout
+  const delaiSecurite = new Promise((_, reject) =>
+    setTimeout(() => reject(new Error("Le calcul prend trop de temps (plus de 20s) — vérifie ta connexion OneDrive et réessaie.")), 20000)
+  );
+
+  try {
+    donneesRemboursementCalculees = await Promise.race([calculerListeRemboursement(), delaiSecurite]);
+    afficherListeRemboursement();
+  } catch (e) {
+    container.innerHTML = `<p class="statut-documents-erreur">${e.message}</p><button class="btn-connexion" onclick="ouvrirVueRemboursement()">Réessayer</button>`;
+  }
 }
 
 // Réutilise le même principe déjà en place pour "Dettes locataires" :
@@ -34,6 +44,33 @@ async function calculerListeRemboursement() {
 
   const parLocataire = {};
 
+  // Résout le dossier "historique" UNE SEULE FOIS avant la boucle — auparavant,
+  // chargerMoisOneDrive() le retrouvait à chaque mois, multipliant inutilement
+  // les allers-retours réseau (source probable d'un calcul très long, voire bloqué,
+  // avec plusieurs mois d'historique).
+  let refDossierHistorique = null;
+  if (typeof estConnecte === 'function' && estConnecte()) {
+    try {
+      refDossierHistorique = await resoudreRefParChemin('GESTION-LOYERS/historique', false);
+    } catch (e) {
+      refDossierHistorique = null;
+    }
+  }
+
+  async function chargerMoisRapide(mois) {
+    if (typeof estConnecte === 'function' && estConnecte()) {
+      if (!refDossierHistorique) return null;
+      try {
+        const res = await lireFichierDansDossier(refDossierHistorique, `${mois}.json`);
+        if (!res.ok) return null;
+        return await res.json();
+      } catch (e) {
+        return null;
+      }
+    }
+    return JSON.parse(localStorage.getItem(STORAGE_KEY_PREFIX + mois) || 'null');
+  }
+
   function assurerEntree(b, u) {
     const cle = `${b.id}__${(u.designation || '').toUpperCase().trim()}__${(u.locataire || '').toUpperCase().trim()}`;
     if (!parLocataire[cle]) {
@@ -46,11 +83,10 @@ async function calculerListeRemboursement() {
     return parLocataire[cle];
   }
 
-  // 1) loyer en retard, cumulé sur les mois passés
-  for (const mois of moisPasses) {
-    const donnees = typeof estConnecte === 'function' && estConnecte()
-      ? await chargerMoisOneDrive(mois).catch(() => null)
-      : JSON.parse(localStorage.getItem(STORAGE_KEY_PREFIX + mois) || 'null');
+  // 1) loyer en retard, cumulé sur les mois passés — tous les mois chargés
+  // EN PARALLÈLE (Promise.all), pas un par un en attendant chacun avant le suivant
+  const donneesParMois = await Promise.all(moisPasses.map(mois => chargerMoisRapide(mois)));
+  for (const donnees of donneesParMois) {
     if (!donnees || !donnees.immeubles) continue;
     for (const b of donnees.immeubles) {
       for (const u of b.unites) {
@@ -74,9 +110,10 @@ async function calculerListeRemboursement() {
     }
   }
 
-  return Object.values(parLocataire).filter(e =>
-    e.garantieMontant > 0 || e.retardLoyer > 0 || e.retardAssurance > 0
-  );
+  // TOUS les locataires occupés apparaissent, pas seulement ceux qui ont déjà
+  // un retard — la garantie doit toujours être disponible pour REMBOURSEMENT,
+  // même si tout est par ailleurs en ordre pour ce locataire
+  return Object.values(parLocataire);
 }
 
 function afficherListeRemboursement() {

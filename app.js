@@ -479,6 +479,17 @@ let immeublesOuverts = new Set();
 let immeublesOuvertsDocuments = new Set();
 
 function ouvrirEdition(uniteId) {
+  // rouvrir la MÊME unité déjà en cours d'édition ne doit rien faire — sinon
+  // le render() ci-dessous écraserait une saisie tapée mais pas encore enregistrée
+  if (uniteEnEdition === uniteId) return;
+
+  // avant d'ouvrir une AUTRE unité, on commite d'abord celle qui était déjà
+  // ouverte — sinon ses changements non enregistrés étaient silencieusement
+  // perdus au prochain render() (bug réel confirmé : "Tout enregistrer" ne
+  // rattrapait que la dernière unité ouverte, jamais les précédentes)
+  if (uniteEnEdition) {
+    enregistrerEdition(uniteEnEdition);
+  }
   uniteEnEdition = uniteId;
   render();
   const el = document.getElementById('form-' + uniteId);
@@ -899,9 +910,10 @@ const LABELS_CHAMPS_VBA = {
   preuveGarantie: 'Preuve garantie',
   debutBail: 'Début du bail',
   montantAssurance: 'Montant assurance (€)',
+  commentaires: 'Commentaires',
 };
 
-const CHAMPS_TEXTE_VBA = ['locataire', 'garantieForme', 'preuveGarantie', 'debutBail'];
+const CHAMPS_TEXTE_VBA = ['locataire', 'garantieForme', 'preuveGarantie', 'debutBail', 'commentaires'];
 
 let listeDifferencesVba = [];
 let indexDifferenceVbaEnCours = 0;

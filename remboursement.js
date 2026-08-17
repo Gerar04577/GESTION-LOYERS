@@ -1,0 +1,123 @@
+// Gestion Loyers — module LISTE REMBOURSEMENT, entièrement séparé
+// Isolé volontairement : ne touche à AUCUNE fonction ni variable de app.js,
+// seulement les fonctions déjà globales qu'il réutilise en lecture (appData,
+// calculerLoyerCC, indexMoisConnus, chargerMoisOneDrive, etc.) et les fonctions
+// déjà globales de graph-storage.js pour écrire sur OneDrive.
+//
+// BUT : construire, pour chaque locataire, 3 informations dont a besoin
+// l'application séparée "REMBOURSEMENT" (dans Charges et Compteurs) :
+// 1) sa garantie locative, 2) son retard de loyer cumulé, 3) son retard
+// d'assurance — et les rendre consultables ICI, ET écrites dans un fichier
+// JSON partagé sur OneDrive que l'autre app peut lire de son côté.
+
+const NOM_FICHIER_REMBOURSEMENT = 'remboursements.json';
+let donneesRemboursementCalculees = null;
+
+async function ouvrirVueRemboursement() {
+  document.getElementById('immeubles-container').style.display = 'none';
+  document.getElementById('vue-remboursement').style.display = 'block';
+  const container = document.getElementById('vue-remboursement-container');
+  container.innerHTML = '<p class="placeholder-note">Calcul en cours…</p>';
+
+  donneesRemboursementCalculees = await calculerListeRemboursement();
+  afficherListeRemboursement();
+}
+
+// Réutilise le même principe déjà en place pour "Dettes locataires" :
+// le loyer se cumule sur tous les mois strictement PASSÉS (jamais le mois
+// affiché, qui n'est pas encore terminé) ; l'assurance reste un montant
+// unique, jamais démultiplié ; la garantie est une donnée du mois affiché
+// (elle ne "s'accumule" pas, c'est un montant fixe déjà versé une fois).
+async function calculerListeRemboursement() {
+  let tousMois = [...new Set([...indexMoisConnus, ...(JSON.parse(localStorage.getItem(STORAGE_KEY_INDEX) || '[]'))])].sort();
+  const moisPasses = tousMois.filter(m => m < moisAffiche);
+
+  const parLocataire = {};
+
+  function assurerEntree(b, u) {
+    const cle = `${b.id}__${(u.designation || '').toUpperCase().trim()}__${(u.locataire || '').toUpperCase().trim()}`;
+    if (!parLocataire[cle]) {
+      parLocataire[cle] = {
+        immeuble: b.nom, immeubleId: b.id, unite: u.designation, locataire: u.locataire,
+        garantieMontant: 0, garantieForme: null,
+        retardLoyer: 0, retardAssurance: 0
+      };
+    }
+    return parLocataire[cle];
+  }
+
+  // 1) loyer en retard, cumulé sur les mois passés
+  for (const mois of moisPasses) {
+    const donnees = typeof estConnecte === 'function' && estConnecte()
+      ? await chargerMoisOneDrive(mois).catch(() => null)
+      : JSON.parse(localStorage.getItem(STORAGE_KEY_PREFIX + mois) || 'null');
+    if (!donnees || !donnees.immeubles) continue;
+    for (const b of donnees.immeubles) {
+      for (const u of b.unites) {
+        if (!u.locataire || u.inoccupe) continue;
+        const loyerDu = calculerLoyerCC(u) - (u.montantsVerses || 0);
+        if (loyerDu > 0) assurerEntree(b, u).retardLoyer += loyerDu;
+      }
+    }
+  }
+
+  // 2) garantie + 3) assurance : à partir des données ACTUELLEMENT affichées (mois en cours)
+  for (const b of appData.immeubles) {
+    for (const u of b.unites) {
+      if (!u.locataire || u.inoccupe) continue;
+      const entree = assurerEntree(b, u);
+      entree.garantieMontant = u.garantieMontant || 0;
+      entree.garantieForme = u.garantieForme || null;
+      if (b.id !== 'vannes' && u.assuranceDue && u.assuranceStatut !== 'en_ordre') {
+        entree.retardAssurance = u.montantAssurance || 0;
+      }
+    }
+  }
+
+  return Object.values(parLocataire).filter(e =>
+    e.garantieMontant > 0 || e.retardLoyer > 0 || e.retardAssurance > 0
+  );
+}
+
+function afficherListeRemboursement() {
+  const container = document.getElementById('vue-remboursement-container');
+  const lignes = donneesRemboursementCalculees || [];
+
+  if (!lignes.length) {
+    container.innerHTML = '<p class="placeholder-note">Aucune donnée de garantie, retard de loyer ou d\'assurance à afficher pour l\'instant.</p>';
+    return;
+  }
+
+  container.innerHTML = `
+    <button class="btn-connexion" style="background:#2e7d4f;color:white;margin-bottom:1rem;" onclick="exporterRemboursementOneDrive()">📤 Enregistrer sur OneDrive (pour Charges et Compteurs)</button>
+    <div id="statut-export-remboursement"></div>
+    <table class="table-comparaison">
+      <thead><tr><th>Immeuble</th><th>Unité</th><th>Locataire</th><th>Garantie</th><th>Retard loyer</th><th>Retard assurance</th></tr></thead>
+      <tbody>
+        ${lignes.map(l => `<tr>
+          <td>${l.immeuble}</td><td>${l.unite}</td><td>${l.locataire}</td>
+          <td>${l.garantieMontant > 0 ? l.garantieMontant.toFixed(2) + ' € (' + (l.garantieForme || '—') + ')' : '—'}</td>
+          <td>${l.retardLoyer > 0 ? l.retardLoyer.toFixed(2) + ' €' : '—'}</td>
+          <td>${l.retardAssurance > 0 ? l.retardAssurance.toFixed(2) + ' €' : '—'}</td>
+        </tr>`).join('')}
+      </tbody>
+    </table>
+  `;
+}
+
+async function exporterRemboursementOneDrive() {
+  const statut = document.getElementById('statut-export-remboursement');
+  statut.innerHTML = '<p class="placeholder-note">Écriture sur OneDrive…</p>';
+  try {
+    const refRacine = await resoudreRefParChemin('', false);
+    const contenu = JSON.stringify({
+      genereLe: new Date().toISOString(),
+      mois: moisAffiche,
+      locataires: donneesRemboursementCalculees
+    }, null, 2);
+    await ecrireFichierDansDossier(refRacine, NOM_FICHIER_REMBOURSEMENT, contenu);
+    statut.innerHTML = '<p style="color:#2e7d4f;font-weight:700;">✓ Enregistré sur OneDrive (Immobilier 2025-2026/remboursements.json) — Charges et Compteurs peut maintenant le lire.</p>';
+  } catch (e) {
+    statut.innerHTML = `<p class="statut-documents-erreur">Échec de l'écriture : ${e.message}</p>`;
+  }
+}

@@ -278,6 +278,31 @@ async function reimporterVentilation() {
 
 // ---------- Navigation entre mois ----------
 
+// Les flèches ‹ › sont trop sensibles sur iPhone (un tap un peu appuyé peut
+// faire sauter deux mois d'un coup sans s'en rendre compte). On demande donc
+// toujours une confirmation explicite à fermer avant de vraiment changer de mois.
+let moisEnAttenteConfirmation = null;
+
+function demanderChangementMois(mois) {
+  moisEnAttenteConfirmation = mois;
+  document.getElementById('texte-confirmation-mois').textContent =
+    `Passer à ${libelleMois(mois)} ?`;
+  document.getElementById('confirmation-changement-mois').style.display = 'block';
+}
+
+function annulerChangementMois() {
+  moisEnAttenteConfirmation = null;
+  document.getElementById('confirmation-changement-mois').style.display = 'none';
+}
+
+function confirmerChangementMois() {
+  document.getElementById('confirmation-changement-mois').style.display = 'none';
+  if (moisEnAttenteConfirmation) {
+    allerAuMois(moisEnAttenteConfirmation);
+    moisEnAttenteConfirmation = null;
+  }
+}
+
 async function allerAuMois(mois) {
   moisAffiche = mois;
   await chargerMoisCourant(false);
@@ -1508,6 +1533,31 @@ function render() {
                 ? `<br><span class="attente-immeuble">En attente : ${formatMontant(totalAttente)}</span>`
                 : '';
             }
+
+            // le total GÉNÉRAL (tout en haut de l'app, tous immeubles confondus) doit
+            // aussi suivre en direct — avant, seul le total de l'immeuble réagissait,
+            // le bandeau du haut restait figé jusqu'à un vrai Enregistrer
+            let duGeneral = 0, verseGeneral = 0, attenteGeneral = 0;
+            for (const b of appData.immeubles) {
+              for (const autre of b.unites) {
+                if (autre.id === u.id) {
+                  duGeneral += cc;
+                  verseGeneral += verse;
+                  attenteGeneral += Math.max(0, solde);
+                } else {
+                  const ccAutre = calculerLoyerCC(autre);
+                  duGeneral += ccAutre;
+                  verseGeneral += (autre.montantsVerses || 0);
+                  attenteGeneral += Math.max(0, ccAutre - (autre.montantsVerses || 0));
+                }
+              }
+            }
+            const afficheDuGeneral = document.getElementById('total-du');
+            const afficheVerseGeneral = document.getElementById('total-verse');
+            const afficheAttenteGeneral = document.getElementById('total-attente');
+            if (afficheDuGeneral) afficheDuGeneral.textContent = formatMontant(duGeneral);
+            if (afficheVerseGeneral) afficheVerseGeneral.textContent = formatMontant(verseGeneral);
+            if (afficheAttenteGeneral) afficheAttenteGeneral.textContent = formatMontant(attenteGeneral);
           };
           champVerse.addEventListener('input', recalculerAttenteAffichee);
           champsMontant.forEach(c => { if (c) c.addEventListener('input', recalculerAttenteAffichee); });
@@ -1589,8 +1639,8 @@ async function init() {
   }
   mettreAJourBoutonConnexion();
 
-  document.getElementById('mois-precedent').onclick = () => allerAuMois(moisPrecedent(moisAffiche));
-  document.getElementById('mois-suivant').onclick = () => allerAuMois(moisSuivant(moisAffiche));
+  document.getElementById('mois-precedent').onclick = () => demanderChangementMois(moisPrecedent(moisAffiche));
+  document.getElementById('mois-suivant').onclick = () => demanderChangementMois(moisSuivant(moisAffiche));
 
   const derniere = localStorage.getItem(CLE_DERNIERE_SAUVEGARDE);
   if (derniere) afficherDerniereSauvegarde(derniere);

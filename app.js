@@ -1606,6 +1606,7 @@ function render() {
           ${attente > 0 ? `<div class="attente-unite">En attente : ${formatMontant(attente)}</div>` : ''}
         </div>
         <div class="montant" id="montant-ligne-${u.id}">
+          ${!u.inoccupe && u.locataire && u.montantsVerses > 0 ? `<span class="badge verse-info">VERSÉ ${formatMontant(u.montantsVerses)}${u.dateVersement ? ' · ' + formaterDateAffichage(u.dateVersement) : ''}</span>` : ''}
           ${u.aVentiler && !u.inoccupe && u.locataire ? '<span title="Loyer non encore ventilé">*</span> ' : ''}${formatMontant(loyerCC)}
           ${u.inoccupe ? '<span class="badge inoccupe">Inoccupé</span>' : ''}
           ${!u.inoccupe && retard === 'rouge' ? '<span class="badge retard-rouge">Retard 4j+</span>' : ''}
@@ -1613,7 +1614,6 @@ function render() {
           ${!u.inoccupe && !retard && u.locataire ? '<span class="badge ok">OK</span>' : ''}
           ${!u.inoccupe && assuranceKO ? '<span class="badge assurance">Assurance retard</span>' : ''}
           ${!u.inoccupe && conflit ? '<span class="badge conflit" title="'+conflit+'">Conflit</span>' : ''}
-          ${!u.inoccupe && u.locataire && u.montantsVerses > 0 ? `<span class="badge verse-info">💶 ${formatMontant(u.montantsVerses)}${u.dateVersement ? ' — ' + formaterDateAffichage(u.dateVersement) : ''}</span>` : ''}
         </div>
       `;
       details.appendChild(row);

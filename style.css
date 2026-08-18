@@ -261,20 +261,24 @@ main {
   justify-content: space-between;
   align-items: center;
   gap: 0.6rem;
+  background: #dce8f5;
 }
 
 .unite-row .designation {
   font-size: 0.92rem;
-  color: var(--text);
+  color: #1f4a70;
 }
 .unite-row .locataire {
   font-size: 0.8rem;
-  color: var(--text-muted);
+  color: #1f4a70;
+  opacity: 0.8;
 }
 .unite-row .montant {
   font-variant-numeric: tabular-nums;
   font-size: 0.95rem;
   white-space: nowrap;
+  color: #c98a3e;
+  font-weight: 700;
 }
 
 .badge {
@@ -287,8 +291,9 @@ main {
 }
 .badge.retard-rouge { background: var(--alert-red-bg); color: var(--alert-red); }
 .badge.retard-orange { background: #fdf0dc; color: #b3701f; }
-.badge.ok { background: var(--ok-bg); color: var(--ok-color); }
+.badge.ok { background: white; color: #2f6b3f; }
 .badge.assurance { background: var(--assurance-bg); color: var(--assurance-color); }
+.badge.verse-info { background: #f5e0b8; color: #8a5a1f; font-weight: 700; }
 
 .placeholder-note {
   text-align: center;

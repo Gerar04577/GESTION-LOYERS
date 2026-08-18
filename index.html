@@ -8,27 +8,28 @@
 <link rel="apple-touch-icon" href="icons/icon-192.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#1f2e28">
-<link rel="stylesheet" href="style.css?v=66">
+<link rel="stylesheet" href="style.css?v=67">
 </head>
 <body>
 
 <header class="app-header">
   <h1>Gestion Loyers</h1>
-  <div class="version-app">v66</div>
+  <div class="version-app">v67</div>
   <div id="sync-status" class="bandeau-statut">Chargement…</div>
   <div id="derniere-sauvegarde" class="derniere-sauvegarde"></div>
   <button id="connexion-onedrive" class="btn-connexion">Se connecter à OneDrive</button>
 
-  <div class="mois-nav">
-    <button id="mois-precedent" class="btn-mois" aria-label="Mois précédent">‹</button>
-    <span class="mois-actuel">
-      <span id="mois-label">—</span>
-      <span id="mois-courant-badge" class="badge-mois-courant">en cours</span>
-    </span>
-    <button id="mois-suivant" class="btn-mois" aria-label="Mois suivant">›</button>
+  <div class="ligne-controle">
+    <div class="mois-nav">
+      <button id="mois-precedent" class="btn-mois" aria-label="Mois précédent">‹</button>
+      <span class="mois-actuel">
+        <span id="mois-label">—</span>
+        <span id="mois-courant-badge" class="badge-mois-courant">en cours</span>
+      </span>
+      <button id="mois-suivant" class="btn-mois" aria-label="Mois suivant">›</button>
+    </div>
+    <button id="tout-enregistrer" class="btn-tout-enregistrer" onclick="toutEnregistrer()">💾 Tout enregistrer</button>
   </div>
-
-  <button id="tout-enregistrer" class="btn-tout-enregistrer" onclick="toutEnregistrer()">💾 Tout enregistrer maintenant</button>
 
   <div id="alerte-enregistrement" class="alerte-enregistrement" style="display:none;">
     ⚠️ N'OUBLIEZ PAS D'ENREGISTRER ⚠️<br>
@@ -187,11 +188,11 @@
 
 </main>
 
-<script src="graph-auth.js?v=66"></script>
-<script src="graph-storage.js?v=66"></script>
-<script src="graph-veros-scan.js?v=66"></script>
-<script src="sous-location.js?v=66"></script>
-<script src="remboursement.js?v=66"></script>
-<script src="app.js?v=66"></script>
+<script src="graph-auth.js?v=67"></script>
+<script src="graph-storage.js?v=67"></script>
+<script src="graph-veros-scan.js?v=67"></script>
+<script src="sous-location.js?v=67"></script>
+<script src="remboursement.js?v=67"></script>
+<script src="app.js?v=67"></script>
 </body>
 </html>

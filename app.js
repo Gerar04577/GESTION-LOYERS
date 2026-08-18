@@ -304,6 +304,12 @@ function confirmerChangementMois() {
 }
 
 async function allerAuMois(mois) {
+  // même défaut que celui déjà corrigé dans ouvrirEdition() : changer de mois
+  // remplace entièrement appData, donc une unité ouverte mais pas encore
+  // enregistrée doit être commitée d'abord, sinon la saisie est perdue en silence
+  if (uniteEnEdition) {
+    enregistrerEdition(uniteEnEdition);
+  }
   moisAffiche = mois;
   await chargerMoisCourant(false);
 }
@@ -553,6 +559,15 @@ function enregistrerEdition(uniteId) {
     u.montantAssurance = parseFloat(get('montantAssurance')) || 0;
   }
   u.montantsVerses = u.inoccupe ? 0 : (parseFloat(get('montantsVerses')) || 0);
+  const dateVersementSaisie = get('dateVersement');
+  if (u.inoccupe) {
+    u.dateVersement = null;
+  } else if (dateVersementSaisie) {
+    u.dateVersement = dateVersementSaisie;
+  } else if (u.montantsVerses > 0 && !u.dateVersement) {
+    // aucune date choisie mais un montant est versé : date du jour par défaut
+    u.dateVersement = new Date().toISOString().slice(0, 10);
+  }
   u.prochainPaiement = get('prochainPaiement') || null;
   u.typeUnite = get('typeUnite') || null;
   u.debutBail = get('debutBail') || null;
@@ -636,6 +651,7 @@ function formulaireEdition(immeuble, u) {
       ${conflitInternet(u) ? `<div class="conflit-warning">⚠️ ${conflitInternet(u)}</div>` : ''}
       <p class="hint">Provision de charges (calculée, charges + poubelles + internet) : <strong>${calculerProvisionCharges(u).toFixed(2)} €</strong></p>
       ${champ('Montants versés (€)', 'montantsVerses', u.id, u.montantsVerses, 'number')}
+      ${champ('Date du versement', 'dateVersement', u.id, u.dateVersement, 'date')}
       ${champ('Prochain paiement', 'prochainPaiement', u.id, u.prochainPaiement, 'date')}
       <div class="champ-lecture-seule">
         <span>Statut</span>
@@ -1473,6 +1489,14 @@ function render() {
           });
         }
         const champVerse = formEl.querySelector(`#f-montantsVerses-${u.id}`);
+        const champDateVersement = formEl.querySelector(`#f-dateVersement-${u.id}`);
+        if (champVerse && champDateVersement) {
+          champVerse.addEventListener('input', () => {
+            if (parseFloat(champVerse.value) > 0 && !champDateVersement.value) {
+              champDateVersement.value = new Date().toISOString().slice(0, 10);
+            }
+          });
+        }
         const afficheAttente = formEl.querySelector(`#f-resteEnAttenteAffiche-${u.id}`);
         const afficheLoyerCC = formEl.querySelector(`#f-loyerCCAffiche-${u.id}`);
         const afficheTotalImmeuble = details.querySelector(`#total-immeuble-${immeuble.id}`);
@@ -1589,6 +1613,7 @@ function render() {
           ${!u.inoccupe && !retard && u.locataire ? '<span class="badge ok">OK</span>' : ''}
           ${!u.inoccupe && assuranceKO ? '<span class="badge assurance">Assurance retard</span>' : ''}
           ${!u.inoccupe && conflit ? '<span class="badge conflit" title="'+conflit+'">Conflit</span>' : ''}
+          ${!u.inoccupe && u.locataire && u.montantsVerses > 0 ? `<span class="badge verse-info">💶 ${formatMontant(u.montantsVerses)}${u.dateVersement ? ' — ' + formaterDateAffichage(u.dateVersement) : ''}</span>` : ''}
         </div>
       `;
       details.appendChild(row);

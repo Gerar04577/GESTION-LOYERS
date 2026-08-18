@@ -140,11 +140,12 @@ async function ecrireFichierDansDossier(refDossier, nomFichier, corpsTexte, opti
   const url = refDossier.driveId
     ? `/drives/${refDossier.driveId}/items/${refDossier.id}:/${encodeURIComponent(nomFichier)}:/content`
     : `/me/drive/items/${refDossier.id}:/${encodeURIComponent(nomFichier)}:/content`;
+  const { headers: enTetesSupplementaires, ...autresOptions } = options;
   return await appelGraph(url, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...(enTetesSupplementaires || {}) },
     body: corpsTexte,
-    ...options
+    ...autresOptions
   });
 }
 
@@ -190,4 +191,43 @@ async function sauvegarderMoisOneDrive(mois, data) {
     await sauvegarderIndexMoisOneDrive(index);
   }
   return true;
+}
+
+// dépose un vrai fichier (PDF, image...) dans un sous-dossier nommé, à l'intérieur d'un dossier déjà résolu ;
+// crée le sous-dossier s'il n'existe pas encore
+async function televerserFichierDansSousDossier(refDossierParent, nomSousDossier, fichier) {
+  let refSousDossier = null;
+  const enfants = await enfantsDeRef(refDossierParent);
+  let trouve = enfants.find(e => (e.name || '').trim() === nomSousDossier);
+  if (!trouve) {
+    const urlCreation = refDossierParent.driveId
+      ? `/drives/${refDossierParent.driveId}/items/${refDossierParent.id}/children`
+      : `/me/drive/items/${refDossierParent.id}/children`;
+    const creation = await appelGraph(urlCreation, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: nomSousDossier, folder: {}, '@microsoft.graph.conflictBehavior': 'rename' })
+    });
+    if (creation.ok) {
+      trouve = await creation.json();
+    } else if (creation.status === 409) {
+      const enfants2 = await enfantsDeRef(refDossierParent);
+      trouve = enfants2.find(e => (e.name || '').trim() === nomSousDossier);
+    } else {
+      throw new Error(`Création dossier "${nomSousDossier}" : ${await detailErreur(creation)}`);
+    }
+  }
+  refSousDossier = refDe(trouve, refDossierParent.driveId);
+
+  const nomFichier = fichier.name;
+  const url = refSousDossier.driveId
+    ? `/drives/${refSousDossier.driveId}/items/${refSousDossier.id}:/${encodeURIComponent(nomFichier)}:/content`
+    : `/me/drive/items/${refSousDossier.id}:/${encodeURIComponent(nomFichier)}:/content`;
+  const res = await appelGraph(url, {
+    method: 'PUT',
+    headers: { 'Content-Type': fichier.type || 'application/octet-stream' },
+    body: fichier
+  });
+  if (!res.ok) throw new Error(`Dépôt du fichier "${nomFichier}" : ${await detailErreur(res)}`);
+  return nomFichier;
 }

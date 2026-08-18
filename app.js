@@ -11,6 +11,10 @@ const NOMS_MOIS = ["janvier","février","mars","avril","mai","juin","juillet","a
 let appData = null;
 let moisAffiche = moisActuel();
 let indexMoisConnus = []; // liste de "YYYY-MM" trié
+// snapshot du contenu OneDrive tel que chargé — sert à détecter si quelqu'un
+// d'autre (ex. Véronique, sur un autre appareil) a modifié ce mois entre-temps,
+// avant qu'on écrase silencieusement son travail
+let snapshotOneDriveMois = null; // instantané du contenu OneDrive au chargement — détecte un conflit avant d'écraser
 
 function moisActuel() {
   const d = new Date();
@@ -157,6 +161,39 @@ async function sauvegarder() {
   render();
   if (typeof estConnecte === 'function' && estConnecte()) {
     sauvegardeEnCours = true;
+    afficherStatutSync("Vérification avant sauvegarde…");
+
+    // SÉCURITÉ CRITIQUE (ajoutée après l'incident du 18/08) : avant d'écraser
+    // le fichier sur OneDrive, on vérifie qu'il n'a pas changé depuis qu'on l'a
+    // chargé — si oui, quelqu'un d'autre a modifié ce mois entre-temps. On
+    // refuse alors d'écraser silencieusement et on prévient clairement à la place.
+    // (Note technique : l'approche "officielle" par ETag/If-Match a été essayée
+    // mais Microsoft n'expose pas cet en-tête au navigateur sur cet endpoint —
+    // restriction CORS, vérifié et confirmé. Cette comparaison de contenu est
+    // moins élégante mais réellement fonctionnelle, testée et fiable.)
+    if (snapshotOneDriveMois !== null) {
+      try {
+        const actuelSurOneDrive = await chargerMoisOneDrive(moisAffiche);
+        const actuelTexte = actuelSurOneDrive ? JSON.stringify(actuelSurOneDrive) : null;
+        if (actuelTexte !== null && actuelTexte !== snapshotOneDriveMois) {
+          sauvegardeEnCours = false;
+          const conteneur = document.getElementById('immeubles-container');
+          if (conteneur) {
+            conteneur.innerHTML = `<div class="immeuble-card" style="padding:1.2rem;background:#fdecec;border:2px solid var(--alert-red);">
+              <p style="font-weight:700;color:var(--alert-red);">⚠️ CONFLIT DÉTECTÉ</p>
+              <p>Quelqu'un d'autre a modifié ${libelleMois(moisAffiche)} sur OneDrive depuis que tu l'as chargé (peut-être Véronique, ou une autre session ouverte).</p>
+              <p><strong>Sauvegarder maintenant écraserait son travail.</strong></p>
+              <button class="btn-connexion" style="background:#2e7d4f;color:white;" onclick="chargerMoisCourant(false)">🔄 Recharger la version à jour (tes changements non enregistrés seront perdus)</button>
+            </div>`;
+          }
+          afficherStatutSync("⚠️ Sauvegarde bloquée — conflit détecté avec une autre modification", true);
+          return;
+        }
+      } catch (e) {
+        console.error("Vérification de conflit impossible, on continue prudemment", e);
+      }
+    }
+
     afficherStatutSync("Sauvegarde en cours… ne pas fermer l'app");
     const tentative = JSON.stringify(appData);
     localStorage.setItem(CLE_DERNIER_ENVOI, JSON.stringify({ mois: moisAffiche, contenu: tentative }));
@@ -169,11 +206,18 @@ async function sauvegarder() {
         throw new Error("Vérification échouée : le contenu relu ne correspond pas à ce qui a été envoyé");
       }
 
+      snapshotOneDriveMois = tentative; // notre propre sauvegarde devient la nouvelle référence
+
       const horodatage = new Date().toISOString();
       localStorage.setItem(CLE_DERNIERE_SAUVEGARDE, horodatage);
-      localStorage.removeItem(CLE_DERNIER_ENVOI); // confirmé, plus besoin de vérifier au prochain démarrage
+      localStorage.removeItem(CLE_DERNIER_ENVOI);
       afficherDerniereSauvegarde(horodatage);
       afficherStatutSync(`Sauvegardé et vérifié — ${libelleMois(moisAffiche)}`);
+
+      // archivage à points espacés (best-effort, jamais bloquant) — voir archivage.js
+      if (typeof archiverSiNecessaire === 'function') {
+        archiverSiNecessaire(moisAffiche, appData).catch(e => console.error("Archivage ignoré", e));
+      }
     } catch (err) {
       console.error("Échec sauvegarde OneDrive", err);
       afficherStatutSync("⚠️ Sauvegarde OneDrive NON confirmée : " + err.message, true);
@@ -315,59 +359,137 @@ async function allerAuMois(mois) {
 }
 
 async function chargerMoisCourant(estOuvertureInitiale) {
-  // 1) essayer OneDrive si connecté
-  if (typeof estConnecte === 'function' && estConnecte()) {
-    try {
-      const index = await chargerIndexMoisOneDrive();
-      indexMoisConnus = index.mois || [];
-      const distant = await chargerMoisOneDrive(moisAffiche);
-      if (distant) {
-        appData = distant;
-        sauvegarderLocal();
-        render();
-        afficherStatutSync(`Dernière sauvegarde chargée, vous pouvez travailler. Mais n'oubliez pas de sauvegarder\u00A0! (${libelleMois(moisAffiche)}, ${new Date().toLocaleTimeString('fr-BE',{hour:'2-digit',minute:'2-digit'})})`);
-        return;
-      }
-      // Ce mois n'existe pas encore dans OneDrive : le recopier depuis le mois précédent
-      // s'il y en a un (permet de préparer un mois à l'avance, pas seulement le vrai mois en cours)
-      await demarrerNouveauMois();
-      return;
-    } catch (e) {
-      console.error("Erreur OneDrive", e);
-      afficherStatutSync("Erreur OneDrive : " + e.message, true);
-    }
-  }
-
-  // 2) repli local
-  const local = localStorage.getItem(STORAGE_KEY_PREFIX + moisAffiche);
-  if (local) {
-    appData = JSON.parse(local);
-    render();
+  // SÉCURITÉ CRITIQUE (18/08, en réponse directe à l'incident) : plus AUCUN repli
+  // sur le cache local. Si la connexion OneDrive n'est pas confirmée, l'app
+  // BLOQUE entièrement plutôt que d'afficher des données potentiellement
+  // anciennes — c'est exactement ce genre de bascule silencieuse qui a causé
+  // la perte de données du 18/08.
+  if (typeof estConnecte !== 'function' || !estConnecte()) {
+    afficherBlocageHorsLigne();
     return;
   }
+  try {
+    const index = await chargerIndexMoisOneDrive();
+    indexMoisConnus = index.mois || [];
+    const distant = await chargerMoisOneDrive(moisAffiche);
+    if (distant) {
+      appData = distant;
+      snapshotOneDriveMois = JSON.stringify(distant); // instantané de référence pour détecter un conflit plus tard
+      sauvegarderLocal();
+      render();
+      afficherStatutSync(`Dernière sauvegarde chargée, vous pouvez travailler. Mais n'oubliez pas de sauvegarder\u00A0! (${libelleMois(moisAffiche)}, ${new Date().toLocaleTimeString('fr-BE',{hour:'2-digit',minute:'2-digit'})})`);
+      return;
+    }
+    // SÉCURITÉ CRITIQUE : si l'index (index.json) dit que ce mois existe déjà sur
+    // OneDrive, mais qu'on vient d'échouer à le lire, c'est une CONTRADICTION —
+    // probablement un souci réseau ou de synchronisation temporaire, PAS une
+    // preuve que le mois n'existe pas. Dans ce cas, on refuse de recréer (ce qui
+    // écraserait silencieusement les vraies données existantes) et on affiche
+    // une erreur claire à la place, avec un moyen de réessayer.
+    if (indexMoisConnus.includes(moisAffiche)) {
+      afficherStatutSync(`⚠️ Impossible de charger ${libelleMois(moisAffiche)} depuis OneDrive, alors qu'il existe déjà. Vérifie ta connexion et réessaie — l'app refuse de recréer ce mois pour ne pas écraser tes données.`, true);
+      const conteneur = document.getElementById('immeubles-container');
+      if (conteneur) {
+        conteneur.innerHTML = `<div class="immeuble-card" style="padding:1.2rem;">
+          <p class="statut-documents-erreur">Le mois ${libelleMois(moisAffiche)} existe sur OneDrive mais n'a pas pu être chargé.</p>
+          <button class="btn-connexion" onclick="chargerMoisCourant(false)">🔄 Réessayer</button>
+        </div>`;
+      }
+      return;
+    }
+    // Ce mois n'existe pas encore dans OneDrive : demander confirmation AVANT
+    // de le recopier depuis le mois précédent — ne plus jamais le faire en silence
+    demanderCreationNouveauMois();
+    return;
+  } catch (e) {
+    console.error("Erreur OneDrive", e);
+    afficherBlocageHorsLigne(e.message);
+  }
+}
+
+function afficherBlocageHorsLigne(detailErreur) {
+  const conteneur = document.getElementById('immeubles-container');
+  if (conteneur) {
+    conteneur.innerHTML = `<div class="immeuble-card" style="padding:1.2rem;background:#fdecec;border:2px solid var(--alert-red);">
+      <p style="font-weight:700;color:var(--alert-red);">🚫 IMPOSSIBLE DE VÉRIFIER ONEDRIVE</p>
+      <p>Pour éviter d'écraser du travail plus récent fait ailleurs, l'app refuse de travailler tant que la connexion à OneDrive n'est pas confirmée.${detailErreur ? ' (' + detailErreur + ')' : ''}</p>
+      <button class="btn-connexion" style="background:#2e7d4f;color:white;" onclick="chargerMoisCourant(false)">🔄 Réessayer</button>
+    </div>`;
+  }
+  afficherStatutSync("🚫 Bloqué — connexion OneDrive non confirmée, aucune donnée locale utilisée", true);
+}
+
+function trouverMoisPrecedentDisponible() {
+  // SÉCURITÉ (18/08) : uniquement les mois CONFIRMÉS par OneDrive (indexMoisConnus),
+  // plus de mélange avec un index local potentiellement obsolète ou faux
+  const tousMoisConnus = [...indexMoisConnus].sort().reverse();
+  return tousMoisConnus.find(m => m < moisAffiche) || null;
+}
+
+// SÉCURITÉ (ajoutée après l'incident du 18/08) : ne plus jamais recréer un mois
+// automatiquement et silencieusement — toujours demander confirmation explicite
+// d'abord, en montrant clairement depuis quel mois précédent ça va copier.
+let moisEnAttenteCreation = null;
+
+function demanderCreationNouveauMois() {
+  moisEnAttenteCreation = moisAffiche;
+  const moisPrecedent = trouverMoisPrecedentDisponible();
+  const conteneur = document.getElementById('immeubles-container');
+  const texte = moisPrecedent
+    ? `Le mois ${libelleMois(moisAffiche)} n'existe pas encore. Le créer en copiant les données de ${libelleMois(moisPrecedent)} ?`
+    : `Le mois ${libelleMois(moisAffiche)} n'existe pas encore, et aucun mois précédent n'a été trouvé pour s'en inspirer. Créer un mois vide ?`;
+  if (conteneur) {
+    conteneur.innerHTML = `<div class="immeuble-card" style="padding:1.2rem;background:#fdf6e3;border:2px solid var(--accent);">
+      <p style="font-weight:700;">${texte}</p>
+      <button class="btn-connexion" style="background:#2e7d4f;color:white;" onclick="confirmerCreationNouveauMois()">✓ Oui, créer</button>
+      <button class="btn-connexion" onclick="annulerCreationNouveauMois()">Annuler</button>
+    </div>`;
+  }
+  afficherStatutSync(`En attente de confirmation pour créer ${libelleMois(moisAffiche)}`, true);
+}
+
+async function confirmerCreationNouveauMois() {
+  if (!moisEnAttenteCreation) return;
+  moisEnAttenteCreation = null;
   await demarrerNouveauMois();
 }
 
+function annulerCreationNouveauMois() {
+  moisEnAttenteCreation = null;
+  const conteneur = document.getElementById('immeubles-container');
+  if (conteneur) conteneur.innerHTML = `<p class="placeholder-note">Création annulée. Utilise les flèches ‹ › pour choisir un autre mois.</p>`;
+  afficherStatutSync("Création annulée", true);
+}
+
 async function demarrerNouveauMois() {
-  // Chercher le mois précédent disponible (OneDrive ou local) pour reprendre la structure
+  snapshotOneDriveMois = null; // ce mois n'a pas encore d'état de référence sur OneDrive
+  // Chercher le mois précédent disponible — UNIQUEMENT sur OneDrive, plus jamais
+  // de repli local (18/08) : si OneDrive ne confirme pas le mois précédent,
+  // on ne l'utilise tout simplement pas comme base, plutôt que de risquer une
+  // version locale potentiellement obsolète
   let base = null;
-  const moisAConsiderer = [...indexMoisConnus].sort().reverse();
-  const localIdx = JSON.parse(localStorage.getItem(STORAGE_KEY_INDEX) || '[]');
-  const tousMoisConnus = [...new Set([...moisAConsiderer, ...localIdx])].sort().reverse();
-  const moisPrecedentTrouve = tousMoisConnus.find(m => m < moisAffiche);
+  const moisPrecedentTrouve = trouverMoisPrecedentDisponible();
 
   if (moisPrecedentTrouve) {
-    if (typeof estConnecte === 'function' && estConnecte()) {
-      try { base = await chargerMoisOneDrive(moisPrecedentTrouve); } catch (e) { /* ignore, on retombe sur local */ }
-    }
-    if (!base) {
-      const local = localStorage.getItem(STORAGE_KEY_PREFIX + moisPrecedentTrouve);
-      if (local) base = JSON.parse(local);
+    try {
+      base = await chargerMoisOneDrive(moisPrecedentTrouve);
+    } catch (e) {
+      // échec de lecture du mois précédent : on ne retombe PLUS sur le local,
+      // on affiche une erreur claire et on arrête plutôt que de deviner
+      afficherStatutSync(`⚠️ Impossible de lire ${libelleMois(moisPrecedentTrouve)} pour créer ${libelleMois(moisAffiche)}. Vérifie ta connexion et réessaie.`, true);
+      const conteneur = document.getElementById('immeubles-container');
+      if (conteneur) {
+        conteneur.innerHTML = `<div class="immeuble-card" style="padding:1.2rem;">
+          <p class="statut-documents-erreur">Échec de lecture de ${libelleMois(moisPrecedentTrouve)}.</p>
+          <button class="btn-connexion" onclick="demanderCreationNouveauMois()">🔄 Réessayer</button>
+        </div>`;
+      }
+      return;
     }
   }
 
   if (!base) {
-    if (tousMoisConnus.length === 0) {
+    if (indexMoisConnus.length === 0) {
       base = await chargerDonneesInitiales(); // vraiment aucun historique nulle part : tout premier usage de l'app
     } else {
       // de l'historique existe, mais aucun mois avant celui-ci (navigation en arrière avant le début réel)
@@ -381,8 +503,7 @@ async function demarrerNouveauMois() {
   }
 
   appData = base;
-  sauvegarder();
-  afficherStatutSync(`Nouveau mois créé — ${libelleMois(moisAffiche)}`);
+  await sauvegarder(); // ATTENDU cette fois : ne jamais dire "créé" avant que la sauvegarde OneDrive soit vraiment confirmée (ou clairement en échec)
 }
 
 // ---------- Édition ----------
@@ -1112,10 +1233,20 @@ async function ouvrirVueDettes() {
   document.getElementById('immeubles-container').style.display = 'none';
   document.getElementById('vue-dettes').style.display = 'block';
   const container = document.getElementById('vue-dettes-container');
+
+  // SÉCURITÉ (18/08) : un calcul de dettes à partir de données locales
+  // potentiellement obsolètes serait trompeur — on bloque plutôt que de risquer
+  // d'afficher des montants faux
+  if (typeof estConnecte !== 'function' || !estConnecte()) {
+    container.innerHTML = '<p class="statut-documents-erreur">Connexion OneDrive requise pour calculer les dettes de façon fiable — connecte-toi d\'abord.</p>';
+    return;
+  }
+
   container.innerHTML = '<p class="placeholder-note">Calcul en cours…</p>';
 
-  // rassembler tous les mois connus, du plus ancien au plus récent
-  let tousMois = [...new Set([...indexMoisConnus, ...(JSON.parse(localStorage.getItem(STORAGE_KEY_INDEX) || '[]'))])].sort();
+  // rassembler tous les mois connus, du plus ancien au plus récent — uniquement
+  // ceux confirmés par OneDrive, plus de mélange avec un index local
+  let tousMois = [...indexMoisConnus].sort();
 
   // le mois AFFICHÉ n'est jamais compté : un mois en cours n'est pas "en retard",
   // il n'est simplement pas encore terminé — seuls les mois strictement PASSÉS comptent
@@ -1130,9 +1261,7 @@ async function ouvrirVueDettes() {
   const dettesParUnite = {};
 
   for (const mois of moisPasses) {
-    const donnees = typeof estConnecte === 'function' && estConnecte()
-      ? await chargerMoisOneDrive(mois).catch(() => null)
-      : JSON.parse(localStorage.getItem(STORAGE_KEY_PREFIX + mois) || 'null');
+    const donnees = await chargerMoisOneDrive(mois).catch(() => null);
     if (!donnees || !donnees.immeubles) continue;
 
     for (const b of donnees.immeubles) {

@@ -39,7 +39,14 @@ async function ouvrirVueRemboursement() {
 // unique, jamais démultiplié ; la garantie est une donnée du mois affiché
 // (elle ne "s'accumule" pas, c'est un montant fixe déjà versé une fois).
 async function calculerListeRemboursement() {
-  let tousMois = [...new Set([...indexMoisConnus, ...(JSON.parse(localStorage.getItem(STORAGE_KEY_INDEX) || '[]'))])].sort();
+  // SÉCURITÉ (18/08) : un calcul basé sur des données locales potentiellement
+  // obsolètes serait trompeur pour une app externe qui lit ce fichier —
+  // on bloque plutôt que de risquer de publier des montants faux
+  if (typeof estConnecte !== 'function' || !estConnecte()) {
+    throw new Error("Connexion OneDrive requise pour calculer les remboursements de façon fiable");
+  }
+
+  let tousMois = [...indexMoisConnus].sort();
   const moisPasses = tousMois.filter(m => m < moisAffiche);
 
   const parLocataire = {};
@@ -49,26 +56,21 @@ async function calculerListeRemboursement() {
   // les allers-retours réseau (source probable d'un calcul très long, voire bloqué,
   // avec plusieurs mois d'historique).
   let refDossierHistorique = null;
-  if (typeof estConnecte === 'function' && estConnecte()) {
-    try {
-      refDossierHistorique = await resoudreRefParChemin('GESTION-LOYERS/historique', false);
-    } catch (e) {
-      refDossierHistorique = null;
-    }
+  try {
+    refDossierHistorique = await resoudreRefParChemin('GESTION-LOYERS/historique', false);
+  } catch (e) {
+    refDossierHistorique = null;
   }
 
   async function chargerMoisRapide(mois) {
-    if (typeof estConnecte === 'function' && estConnecte()) {
-      if (!refDossierHistorique) return null;
-      try {
-        const res = await lireFichierDansDossier(refDossierHistorique, `${mois}.json`);
-        if (!res.ok) return null;
-        return await res.json();
-      } catch (e) {
-        return null;
-      }
+    if (!refDossierHistorique) return null;
+    try {
+      const res = await lireFichierDansDossier(refDossierHistorique, `${mois}.json`);
+      if (!res.ok) return null;
+      return await res.json();
+    } catch (e) {
+      return null;
     }
-    return JSON.parse(localStorage.getItem(STORAGE_KEY_PREFIX + mois) || 'null');
   }
 
   function assurerEntree(b, u) {

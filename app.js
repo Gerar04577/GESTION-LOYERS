@@ -15,6 +15,7 @@ let indexMoisConnus = []; // liste de "YYYY-MM" trié
 // d'autre (ex. Véronique, sur un autre appareil) a modifié ce mois entre-temps,
 // avant qu'on écrase silencieusement son travail
 let snapshotOneDriveMois = null; // instantané du contenu OneDrive au chargement — détecte un conflit avant d'écraser
+let formulaireModifie = false; // vrai seulement si une saisie a réellement eu lieu dans le formulaire ouvert
 
 function moisActuel() {
   const d = new Date();
@@ -159,9 +160,17 @@ const CLE_DERNIER_ENVOI = 'gestionLoyersDernierEnvoi'; // ce qui a été tenté,
 async function sauvegarder() {
   sauvegarderLocal();
   render();
-  if (typeof estConnecte === 'function' && estConnecte()) {
+  if (typeof estConnecte !== 'function' || !estConnecte()) {
+    // SÉCURITÉ (18/08, même principe que Charges & Compteurs) : ne jamais
+    // rester silencieux si la sauvegarde n'a en fait pas pu partir sur
+    // OneDrive — sinon on peut croire que c'est enregistré alors que non
+    afficherBlocageHorsLigne("Tes changements restent uniquement sur cet appareil pour l'instant.");
+    return;
+  }
+  {
     sauvegardeEnCours = true;
     afficherStatutSync("Vérification avant sauvegarde…");
+    if (typeof verifierEtAfficherPresence === 'function') verifierEtAfficherPresence(); // jamais bloquant, juste informatif
 
     // SÉCURITÉ CRITIQUE (ajoutée après l'incident du 18/08) : avant d'écraser
     // le fichier sur OneDrive, on vérifie qu'il n'a pas changé depuis qu'on l'a
@@ -190,7 +199,14 @@ async function sauvegarder() {
           return;
         }
       } catch (e) {
-        console.error("Vérification de conflit impossible, on continue prudemment", e);
+        // SÉCURITÉ (19/08) : avant, on continuait quand même la sauvegarde si
+        // cette vérification échouait — la protection sautait silencieusement
+        // dans ce cas précis. Corrigé : on bloque aussi ici, par prudence,
+        // plutôt que de risquer d'écraser un travail qu'on n'a pas pu vérifier.
+        console.error("Vérification de conflit impossible", e);
+        sauvegardeEnCours = false;
+        afficherBlocageHorsLigne("Impossible de vérifier s'il y a un conflit avant de sauvegarder. Réessaie une fois la connexion stabilisée.");
+        return;
       }
     }
 
@@ -348,10 +364,10 @@ function confirmerChangementMois() {
 }
 
 async function allerAuMois(mois) {
-  // même défaut que celui déjà corrigé dans ouvrirEdition() : changer de mois
-  // remplace entièrement appData, donc une unité ouverte mais pas encore
-  // enregistrée doit être commitée d'abord, sinon la saisie est perdue en silence
-  if (uniteEnEdition) {
+  // même principe que ouvrirEdition() : changer de mois remplace entièrement
+  // appData, donc une unité ouverte mais VRAIMENT modifiée doit être commitée
+  // d'abord — mais si rien n'a été tapé, pas besoin de sauvegarder pour rien
+  if (uniteEnEdition && formulaireModifie) {
     enregistrerEdition(uniteEnEdition);
   }
   moisAffiche = mois;
@@ -377,7 +393,24 @@ async function chargerMoisCourant(estOuvertureInitiale) {
       snapshotOneDriveMois = JSON.stringify(distant); // instantané de référence pour détecter un conflit plus tard
       sauvegarderLocal();
       render();
-      afficherStatutSync(`Dernière sauvegarde chargée, vous pouvez travailler. Mais n'oubliez pas de sauvegarder\u00A0! (${libelleMois(moisAffiche)}, ${new Date().toLocaleTimeString('fr-BE',{hour:'2-digit',minute:'2-digit'})})`);
+      const messageChargement = `${libelleMois(moisAffiche)}, ${new Date().toLocaleTimeString('fr-BE',{hour:'2-digit',minute:'2-digit'})}`;
+      afficherStatutSync(`Dernière sauvegarde chargée, vous pouvez travailler. Mais n'oubliez pas de sauvegarder\u00A0! (${messageChargement})`);
+      if (estOuvertureInitiale) {
+        // vraie modale à valider, seulement au tout premier chargement de la
+        // session — pas à chaque changement de mois, ce serait trop intrusif
+        const modale = document.getElementById('modale-chargement-confirme');
+        const detail = document.getElementById('modale-chargement-detail');
+        if (modale) {
+          if (detail) detail.textContent = messageChargement;
+          modale.style.display = 'flex';
+        }
+        // démarrer le signalement périodique de présence, une seule fois par session
+        if (typeof signalerPresence === 'function') {
+          signalerPresence();
+          setInterval(() => { if (typeof signalerPresence === 'function') signalerPresence(); }, 2 * 60 * 1000);
+        }
+      }
+      if (typeof verifierEtAfficherPresence === 'function') verifierEtAfficherPresence();
       return;
     }
     // SÉCURITÉ CRITIQUE : si l'index (index.json) dit que ce mois existe déjà sur
@@ -411,8 +444,8 @@ function afficherBlocageHorsLigne(detailErreur) {
   const conteneur = document.getElementById('immeubles-container');
   if (conteneur) {
     conteneur.innerHTML = `<div class="immeuble-card" style="padding:1.2rem;background:#fdecec;border:2px solid var(--alert-red);">
-      <p style="font-weight:700;color:var(--alert-red);">🚫 IMPOSSIBLE DE VÉRIFIER ONEDRIVE</p>
-      <p>Pour éviter d'écraser du travail plus récent fait ailleurs, l'app refuse de travailler tant que la connexion à OneDrive n'est pas confirmée.${detailErreur ? ' (' + detailErreur + ')' : ''}</p>
+      <p style="font-weight:700;color:var(--alert-red);">🚫 CONNEXION ONEDRIVE NON CONFIRMÉE</p>
+      <p>Pour éviter d'écraser du travail plus récent fait ailleurs (ou de perdre le tien), l'app refuse de continuer tant que la connexion à OneDrive n'est pas confirmée.${detailErreur ? ' ' + detailErreur : ''}</p>
       <button class="btn-connexion" style="background:#2e7d4f;color:white;" onclick="chargerMoisCourant(false)">🔄 Réessayer</button>
     </div>`;
   }
@@ -636,10 +669,11 @@ function ouvrirEdition(uniteId) {
   if (uniteEnEdition === uniteId) return;
 
   // avant d'ouvrir une AUTRE unité, on commite d'abord celle qui était déjà
-  // ouverte — sinon ses changements non enregistrés étaient silencieusement
-  // perdus au prochain render() (bug réel confirmé : "Tout enregistrer" ne
-  // rattrapait que la dernière unité ouverte, jamais les précédentes)
-  if (uniteEnEdition) {
+  // ouverte — MAIS seulement si elle a été réellement modifiée (formulaireModifie).
+  // Simplement consulter un studio (sans rien taper) puis en ouvrir un autre
+  // ne doit plus déclencher de sauvegarde inutile — testé et confirmé que ça
+  // se produisait avant ce correctif (18/08).
+  if (uniteEnEdition && formulaireModifie) {
     enregistrerEdition(uniteEnEdition);
   }
   uniteEnEdition = uniteId;
@@ -1601,6 +1635,13 @@ function render() {
         wrap.innerHTML = formulaireEdition(immeuble, u);
         const formEl = wrap.firstElementChild;
         details.appendChild(formEl);
+
+        // suivi de modification réelle : ouvrir un formulaire juste pour le
+        // consulter (sans rien taper) ne doit PLUS déclencher de sauvegarde
+        // au moment d'en ouvrir un autre — seule une vraie saisie doit le faire
+        formulaireModifie = false;
+        formEl.addEventListener('input', () => { formulaireModifie = true; });
+        formEl.addEventListener('change', () => { formulaireModifie = true; });
 
         const champDebut = formEl.querySelector(`#f-debutBail-${u.id}`);
         const champFin = formEl.querySelector(`#f-finBail-${u.id}`);

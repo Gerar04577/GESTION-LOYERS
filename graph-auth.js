@@ -112,6 +112,15 @@ async function rafraichirJeton(refreshToken) {
   return jeton;
 }
 
+// SÉCURITÉ (19/08) : protège contre TOUTES les sources d'appels simultanés
+// (double-clic, mais aussi le signal de présence automatique en arrière-plan,
+// ou toute autre fonction future) — pas seulement les doubles sauvegardes.
+// Motif standard documenté ("single-flight" / "request coalescing") : si un
+// rafraîchissement est déjà en cours, on attend CE MÊME résultat au lieu d'en
+// démarrer un second en parallèle avec le même refresh_token — confirmé par
+// Microsoft (azure-docs #74342) qu'un rafraîchissement parallèle peut échouer.
+let promesseRafraichissementEnCours = null;
+
 async function obtenirJetonValide() {
   const brut = localStorage.getItem(TOKEN_STORAGE_KEY);
   if (!brut) return null;
@@ -123,7 +132,11 @@ async function obtenirJetonValide() {
   if (encoreValide) return jeton.access_token;
 
   if (jeton.refresh_token) {
-    const nouveau = await rafraichirJeton(jeton.refresh_token);
+    if (!promesseRafraichissementEnCours) {
+      promesseRafraichissementEnCours = rafraichirJeton(jeton.refresh_token)
+        .finally(() => { promesseRafraichissementEnCours = null; });
+    }
+    const nouveau = await promesseRafraichissementEnCours;
     if (nouveau) return nouveau.access_token;
   }
 

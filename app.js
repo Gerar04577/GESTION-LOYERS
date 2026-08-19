@@ -158,6 +158,17 @@ const CLE_DERNIERE_SAUVEGARDE = 'gestionLoyersDerniereSauvegarde';
 const CLE_DERNIER_ENVOI = 'gestionLoyersDernierEnvoi'; // ce qui a été tenté, pour vérif à la réouverture
 
 async function sauvegarder() {
+  // SÉCURITÉ (19/08) : empêche deux sauvegardes en même temps (ex. double-clic
+  // accidentel sur le bouton "Enregistrer" sous un locataire). Sans cette garde,
+  // les deux appels rafraîchissaient chacun leur propre jeton Microsoft en
+  // parallèle avec le MÊME refresh_token — ce qui peut légitimement faire
+  // échouer l'un des deux ("Failed to fetch"), confirmé par la documentation
+  // officielle Microsoft (azure-docs #74342 : "A refresh token used multiple
+  // times in parallel can fail and then succeed").
+  if (sauvegardeEnCours) {
+    afficherStatutSync("Une sauvegarde est déjà en cours, patiente un instant…", true);
+    return;
+  }
   sauvegarderLocal();
   render();
   if (typeof estConnecte !== 'function' || !estConnecte()) {

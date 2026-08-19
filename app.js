@@ -158,13 +158,6 @@ const CLE_DERNIERE_SAUVEGARDE = 'gestionLoyersDerniereSauvegarde';
 const CLE_DERNIER_ENVOI = 'gestionLoyersDernierEnvoi'; // ce qui a été tenté, pour vérif à la réouverture
 
 async function sauvegarder() {
-  // DIAGNOSTIC TEMPORAIRE (19/08) : Gérard a observé des sauvegardes qui semblent
-  // se déclencher sans clic — recherche exhaustive dans le code n'a rien trouvé
-  // (aucun setInterval/setTimeout récursif/raccourci clavier ne mène ici). Cette
-  // trace capture QUI a appelé sauvegarder() à chaque fois, pour trancher avec
-  // certitude au lieu de continuer à deviner. À retirer une fois la cause trouvée.
-  console.trace("🔍 DIAGNOSTIC — sauvegarder() appelée");
-
   // SÉCURITÉ (19/08) : empêche deux sauvegardes en même temps (ex. double-clic
   // accidentel sur le bouton "Enregistrer" sous un locataire). Sans cette garde,
   // les deux appels rafraîchissaient chacun leur propre jeton Microsoft en
@@ -382,11 +375,14 @@ function confirmerChangementMois() {
 }
 
 async function allerAuMois(mois) {
-  // même principe que ouvrirEdition() : changer de mois remplace entièrement
-  // appData, donc une unité ouverte mais VRAIMENT modifiée doit être commitée
-  // d'abord — mais si rien n'a été tapé, pas besoin de sauvegarder pour rien
+  // SÉCURITÉ (19/08, sur demande explicite de Gérard) : plus AUCUNE sauvegarde
+  // OneDrive automatique en changeant de mois — un vrai avertissement à la place,
+  // pour laisser l'utilisateur décider. Rien n'est tenté vers OneDrive tant que
+  // ce n'est pas un vrai clic sur Enregistrer/Tout enregistrer.
   if (uniteEnEdition && formulaireModifie) {
-    enregistrerEdition(uniteEnEdition);
+    const continuer = confirm(`Le studio ouvert n'a pas été enregistré sur OneDrive.\n\nContinuer sans enregistrer ? (tes saisies restent sur cet appareil, mais pas encore sur OneDrive)`);
+    if (!continuer) return;
+    committerSansSauvegarderOneDrive(uniteEnEdition);
   }
   moisAffiche = mois;
   await chargerMoisCourant(false);
@@ -686,13 +682,14 @@ function ouvrirEdition(uniteId) {
   // le render() ci-dessous écraserait une saisie tapée mais pas encore enregistrée
   if (uniteEnEdition === uniteId) return;
 
-  // avant d'ouvrir une AUTRE unité, on commite d'abord celle qui était déjà
-  // ouverte — MAIS seulement si elle a été réellement modifiée (formulaireModifie).
-  // Simplement consulter un studio (sans rien taper) puis en ouvrir un autre
-  // ne doit plus déclencher de sauvegarde inutile — testé et confirmé que ça
-  // se produisait avant ce correctif (18/08).
+  // SÉCURITÉ (19/08, sur demande explicite de Gérard) : plus AUCUNE sauvegarde
+  // OneDrive automatique en changeant de studio — un vrai avertissement à la
+  // place, pour laisser l'utilisateur décider. Rien n'est tenté vers OneDrive
+  // tant que ce n'est pas un vrai clic sur Enregistrer/Tout enregistrer.
   if (uniteEnEdition && formulaireModifie) {
-    enregistrerEdition(uniteEnEdition);
+    const continuer = confirm(`Le studio ouvert n'a pas été enregistré sur OneDrive.\n\nContinuer sans enregistrer ? (tes saisies restent sur cet appareil, mais pas encore sur OneDrive)`);
+    if (!continuer) return;
+    committerSansSauvegarderOneDrive(uniteEnEdition);
   }
   uniteEnEdition = uniteId;
   render();
@@ -713,9 +710,13 @@ function toutEnregistrer() {
   }
 }
 
-function enregistrerEdition(uniteId) {
+// Lit les champs du formulaire d'une unité et les copie dans l'objet, SANS
+// rien envoyer nulle part (ni local ni OneDrive) — bloc de lecture pur,
+// réutilisé par enregistrerEdition() et par le nouvel avertissement de
+// changement de studio non enregistré.
+function lireFormulaireDansUnite(uniteId) {
   const found = trouverUnite(uniteId);
-  if (!found) return;
+  if (!found) return false;
   const u = found.unite;
   const get = (name) => document.getElementById(`f-${name}-${uniteId}`).value;
 
@@ -759,9 +760,27 @@ function enregistrerEdition(uniteId) {
   u.commentaires = get('commentaires') || '';
   u.notesInternes = get('notesInternes') || '';
   u.aVentiler = false;
+  return true;
+}
 
+// Réservée aux clics EXPLICITES ("Enregistrer" sous un studio, ou via
+// toutEnregistrer()) — tente toujours une vraie sauvegarde OneDrive.
+function enregistrerEdition(uniteId) {
+  if (!lireFormulaireDansUnite(uniteId)) return;
   uniteEnEdition = null;
   sauvegarder();
+}
+
+// Utilisée UNIQUEMENT quand on change de studio/mois sans avoir cliqué
+// "Enregistrer" (19/08, sur demande explicite de Gérard : plus AUCUNE
+// sauvegarde OneDrive automatique, même après le rappel des 10 minutes).
+// Protège quand même la saisie (mémoire + sécurité locale), mais ne tente
+// JAMAIS OneDrive — seul un vrai clic sur Enregistrer/Tout enregistrer le fait.
+function committerSansSauvegarderOneDrive(uniteId) {
+  if (!lireFormulaireDansUnite(uniteId)) return;
+  uniteEnEdition = null;
+  sauvegarderLocal();
+  render();
 }
 
 function champ(label, id, uniteId, value, type = 'text') {

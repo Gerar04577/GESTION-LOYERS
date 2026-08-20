@@ -96,10 +96,11 @@ async function calculerListeRemboursement() {
   }
 
   function assurerEntree(b, u) {
-    const cle = `${b.id}__${(u.designation || '').toUpperCase().trim()}__${(u.locataire || '').toUpperCase().trim()}`;
+    const cle = `${b.id}__${(u.designation || '').toUpperCase().trim()}`;
     if (!parLocataire[cle]) {
       parLocataire[cle] = {
         immeuble: b.nom, immeubleId: b.id, unite: u.designation, locataire: u.locataire,
+        inoccupe: false,
         garantieMontant: 0, garantieForme: null,
         retardLoyer: 0, retardAssurance: 0
       };
@@ -121,11 +122,25 @@ async function calculerListeRemboursement() {
     }
   }
 
-  // 2) garantie + 3) assurance : à partir des données ACTUELLEMENT affichées (mois en cours)
+  // SPEC (20/08, Gérard) : la liste doit TOUJOURS contenir les 50 logements,
+  // occupés ou non. Un logement inoccupé s'affiche avec "inoccupé" et 0 dette/
+  // garantie, quel que soit son historique passé (ancien locataire, etc.)
   for (const b of appData.immeubles) {
     for (const u of b.unites) {
-      if (!u.locataire || u.inoccupe) continue;
+      const cleUnite = `${b.id}__${(u.designation || '').toUpperCase().trim()}`;
+      if (!u.locataire || u.inoccupe) {
+        // écrase toute trace éventuelle d'un ancien locataire dans l'historique —
+        // un logement inoccupé aujourd'hui n'a plus aucune dette à afficher
+        parLocataire[cleUnite] = {
+          immeuble: b.nom, immeubleId: b.id, unite: u.designation, locataire: null,
+          inoccupe: true,
+          garantieMontant: 0, garantieForme: null,
+          retardLoyer: 0, retardAssurance: 0
+        };
+        continue;
+      }
       const entree = assurerEntree(b, u);
+      entree.locataire = u.locataire;
       entree.garantieMontant = u.garantieMontant || 0;
       entree.garantieForme = u.garantieForme || null;
       if (b.id !== 'vannes' && u.assuranceDue && u.assuranceStatut !== 'en_ordre') {
@@ -134,9 +149,6 @@ async function calculerListeRemboursement() {
     }
   }
 
-  // TOUS les locataires occupés apparaissent, pas seulement ceux qui ont déjà
-  // un retard — la garantie doit toujours être disponible pour REMBOURSEMENT,
-  // même si tout est par ailleurs en ordre pour ce locataire
   return Object.values(parLocataire);
 }
 
@@ -156,10 +168,10 @@ function afficherListeRemboursement() {
       <thead><tr><th>Immeuble</th><th>Unité</th><th>Locataire</th><th>Garantie</th><th>Retard loyer</th><th>Retard assurance</th></tr></thead>
       <tbody>
         ${lignes.map(l => `<tr>
-          <td>${l.immeuble}</td><td>${l.unite}</td><td>${l.locataire}</td>
-          <td>${l.garantieMontant > 0 ? l.garantieMontant.toFixed(2) + ' € (' + (l.garantieForme || '—') + ')' : '—'}</td>
-          <td>${l.retardLoyer > 0 ? l.retardLoyer.toFixed(2) + ' €' : '—'}</td>
-          <td>${l.retardAssurance > 0 ? l.retardAssurance.toFixed(2) + ' €' : '—'}</td>
+          <td>${l.immeuble}</td><td>${l.unite}</td><td>${l.inoccupe ? '<em>inoccupé</em>' : l.locataire}</td>
+          <td>${l.inoccupe ? 'inoccupé' : (l.garantieMontant > 0 ? l.garantieMontant.toFixed(2) + ' € (' + (l.garantieForme || '—') + ')' : '—')}</td>
+          <td>${l.inoccupe ? 'inoccupé' : (l.retardLoyer > 0 ? l.retardLoyer.toFixed(2) + ' €' : '—')}</td>
+          <td>${l.inoccupe ? 'inoccupé' : (l.retardAssurance > 0 ? l.retardAssurance.toFixed(2) + ' €' : '—')}</td>
         </tr>`).join('')}
       </tbody>
     </table>

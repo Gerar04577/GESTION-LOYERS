@@ -13,6 +13,28 @@
 const NOM_FICHIER_REMBOURSEMENT = 'remboursements.json';
 let donneesRemboursementCalculees = null;
 
+// SÉCURITÉ (19/08) : "AGestion Charges/Calcul charges et compteurs" est un dossier
+// PARTAGÉ, en dehors de "Immobilier 2025-2026" — il doit donc être résolu depuis
+// la vraie racine "Mes fichiers" (enfantsDeRef(null)), pas depuis resoudreRefParChemin()
+// qui part toujours de "Immobilier 2025-2026". Même principe déjà validé pour
+// Véronique/Julien (navigation par identifiant, gère aussi bien un vrai dossier
+// qu'un raccourci) — juste appliqué à partir d'un point de départ différent.
+const CHEMIN_DOSSIER_CHARGES_COMPTEURS = "AGestion Charges/Calcul charges et compteurs";
+
+async function resoudreRefDepuisRacineReelle(cheminRelatif) {
+  let ref = null; // null = vraie racine "Mes fichiers"
+  const segments = cheminRelatif.split('/').filter(Boolean);
+  for (const segment of segments) {
+    const enfants = await enfantsDeRef(ref);
+    const trouve = enfants.find(e => (e.name || '').trim() === segment);
+    if (!trouve) {
+      throw new Error(`Dossier "${segment}" introuvable dans "${cheminRelatif}" — vérifier qu'il est bien accessible (dossier réel ou raccourci) sur ce compte.`);
+    }
+    ref = refDe(trouve, ref ? ref.driveId : null);
+  }
+  return ref;
+}
+
 async function ouvrirVueRemboursement() {
   document.getElementById('immeubles-container').style.display = 'none';
   document.getElementById('vue-remboursement').style.display = 'block';
@@ -148,14 +170,14 @@ async function exporterRemboursementOneDrive() {
   const statut = document.getElementById('statut-export-remboursement');
   statut.innerHTML = '<p class="placeholder-note">Écriture sur OneDrive…</p>';
   try {
-    const refRacine = await resoudreRefParChemin('', false);
+    const refDossier = await resoudreRefDepuisRacineReelle(CHEMIN_DOSSIER_CHARGES_COMPTEURS);
     const contenu = JSON.stringify({
       genereLe: new Date().toISOString(),
       mois: moisAffiche,
       locataires: donneesRemboursementCalculees
     }, null, 2);
-    await ecrireFichierDansDossier(refRacine, NOM_FICHIER_REMBOURSEMENT, contenu);
-    statut.innerHTML = '<p style="color:#2e7d4f;font-weight:700;">✓ Enregistré sur OneDrive (Immobilier 2025-2026/remboursements.json) — Charges et Compteurs peut maintenant le lire.</p>';
+    await ecrireFichierDansDossier(refDossier, NOM_FICHIER_REMBOURSEMENT, contenu);
+    statut.innerHTML = `<p style="color:#2e7d4f;font-weight:700;">✓ Enregistré sur OneDrive (${CHEMIN_DOSSIER_CHARGES_COMPTEURS}/${NOM_FICHIER_REMBOURSEMENT}) — Charges et Compteurs peut maintenant le lire.</p>`;
   } catch (e) {
     statut.innerHTML = `<p class="statut-documents-erreur">Échec de l'écriture : ${e.message}</p>`;
   }

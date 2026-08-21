@@ -243,3 +243,23 @@ function samadhiRequis(immeubleId, designation) {
   }
   return false;
 }
+
+// Résout le dossier OneDrive d'un locataire précis (utilisée par le dépôt de
+// documents garantie/assurance dans app.js — manquait dans le dépôt, corrigé le 21/08).
+async function obtenirRefLocataire(immeubleId, designation, locataire) {
+  const refImmeuble = await obtenirRefImmeuble(immeubleId);
+  const enfantsImmeuble = await enfantsDeRef(refImmeuble);
+  const trouveUnite = await trouverRefUnite(enfantsImmeuble, refImmeuble, designation, locataire);
+  if (!trouveUnite) throw new Error(`Dossier unité introuvable pour "${designation}"`);
+
+  const enfantsUnite = await enfantsDeRef(trouveUnite.ref);
+  const dossiersLocataires = enfantsUnite.filter(e => e.folder || e.remoteItem);
+  if (!locataire) throw new Error('Nom du locataire manquant');
+  const motsLoc = normaliserNom(locataire).split(' ').filter(m => m.length >= 3);
+  const trouveLoc = dossiersLocataires.find(d => {
+    const nomD = normaliserNom(d.name);
+    return motsLoc.some(mot => nomD.includes(mot));
+  });
+  if (!trouveLoc) throw new Error(`Dossier locataire "${locataire}" introuvable`);
+  return refDe(trouveLoc, trouveUnite.ref.driveId);
+}

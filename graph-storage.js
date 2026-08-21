@@ -25,14 +25,39 @@ function encoderChemin(chemin) {
 async function appelGraph(chemin, options = {}) {
   const token = await obtenirJetonValide();
   if (!token) throw new Error("Jeton Microsoft absent ou expiré (reconnexion nécessaire)");
-  const res = await fetch(`${GRAPH_BASE}${chemin}`, {
+  const url = `${GRAPH_BASE}${chemin}`;
+  const params = {
     ...options,
     headers: {
       ...(options.headers || {}),
       "Authorization": `Bearer ${token}`
     }
-  });
-  return res;
+  };
+  // SÉCURITÉ (21/08) : preuve directe (onglet Network chez Véronique) qu'une
+  // requête peut rester bloquée indéfiniment ("pending"), sans jamais échouer
+  // ni réussir d'elle-même. Une vraie limite de temps force l'abandon d'une
+  // requête figée, puis on réessaie automatiquement — plutôt que d'attendre
+  // sans fin ou d'abandonner au premier aléa passager.
+  const NB_ESSAIS_MAX = 3;
+  const DELAI_ENTRE_ESSAIS_MS = 700;
+  const LIMITE_TEMPS_MS = 15000;
+  let derniereErreur;
+  for (let essai = 1; essai <= NB_ESSAIS_MAX; essai++) {
+    const controleur = new AbortController();
+    const minuteur = setTimeout(() => controleur.abort(), LIMITE_TEMPS_MS);
+    try {
+      const res = await fetch(url, { ...params, signal: controleur.signal });
+      clearTimeout(minuteur);
+      return res;
+    } catch (e) {
+      clearTimeout(minuteur);
+      derniereErreur = e;
+      if (essai < NB_ESSAIS_MAX) {
+        await new Promise(r => setTimeout(r, DELAI_ENTRE_ESSAIS_MS * essai));
+      }
+    }
+  }
+  throw derniereErreur;
 }
 
 async function detailErreur(res) {

@@ -983,10 +983,15 @@ async function lancerScanDocuments() {
 }
 
 function retourVueLoyers() {
-  // ferme TOUTES les vues secondaires par préfixe (vue-*), pas une par une à la main —
-  // pour ne plus jamais en oublier une nouvellement ajoutée (c'est ce qui a posé
-  // problème : 4 vues ajoutées depuis n'avaient jamais été prises en compte ici)
-  document.querySelectorAll('[id^="vue-"]').forEach(el => { el.style.display = 'none'; });
+  // v82 — CORRECTIF DU BLOCAGE DES VUES :
+  // l'ancien sélecteur '[id^="vue-"]' masquait AUSSI les conteneurs internes
+  // (vue-dettes-container, vue-remboursement-container, vue-aide-container, ...)
+  // qu'aucune fonction ouvrirVue*() ne réaffiche jamais. Résultat : après un seul
+  // "Retour aux loyers", toutes les vues affichaient leur titre mais plus aucun contenu.
+  // 1) on ne masque que les vues de premier niveau (enfants directs de <main>)
+  document.querySelectorAll('main > [id^="vue-"]').forEach(el => { el.style.display = 'none'; });
+  // 2) on réaffiche les conteneurs internes (répare aussi ceux masqués avant ce correctif)
+  document.querySelectorAll('main > [id^="vue-"] [id^="vue-"]').forEach(el => { el.style.display = ''; });
   document.getElementById('immeubles-container').style.display = 'block';
 }
 

@@ -204,9 +204,17 @@ async function chargerMoisOneDrive(mois) {
 
 async function sauvegarderMoisOneDrive(mois, data) {
   const refDossier = await resoudreRefParChemin(SOUS_DOSSIER_HISTORIQUE, true);
-  const res = await ecrireFichierDansDossier(refDossier, `${mois}.json`, JSON.stringify(data, null, 2), {
-    keepalive: true // le navigateur termine l'envoi même si l'app est fermée brutalement (essentiel sur iOS)
-  });
+  // v84 (22/08) — RETRAIT de "keepalive: true", qui était posé ici et NULLE PART
+  // ailleurs dans le dépôt, exactement sur la seule opération qui échouait.
+  // Motif : l'option keepalive de fetch() n'a rien à voir avec l'en-tête HTTP
+  // Connection: keep-alive. Elle sert à laisser survivre une requête à la
+  // fermeture de la page, et la spécification Fetch lui impose un budget de
+  // 64 Kio par document. Le fichier mensuel pèse ~37,7 Kio : deux écritures
+  // totalisent 75,4 Kio et dépassent le budget, ce qui produit un
+  // "TypeError: Failed to fetch" indiscernable d'une panne réseau.
+  // La garantie perdue (finir l'envoi si l'app est fermée en pleine sauvegarde)
+  // est déjà couverte par CLE_DERNIER_ENVOI + verifierEnvoiInterrompu() (app.js).
+  const res = await ecrireFichierDansDossier(refDossier, `${mois}.json`, JSON.stringify(data, null, 2));
   if (!res.ok) throw new Error(`Écriture mois ${mois} : ${await detailErreur(res)}`);
 
   const index = await chargerIndexMoisOneDrive();

@@ -72,11 +72,30 @@ function assuranceDueParDefaut(typeUnite) {
   return !(typeUnite === 'garage' || typeUnite === 'rdc_commercial');
 }
 
+// v85 — RESTANT DÛ garantie et assurance.
+// Deux notions à ne jamais confondre :
+//   - garantieMontant / montantAssurance : ce qui est CONTRACTUELLEMENT dû
+//   - garantieEncaissee / assuranceEncaissee : ce qui a été RÉELLEMENT reçu
+//   - le restant dû est la différence, jamais négative (un trop-perçu ne
+//     devient pas une créance en faveur du locataire dans ce calcul).
+// Seul le RESTANT DÛ entre dans la dette du locataire ; l'ENCAISSÉ est ce qui
+// sera remboursé au départ (voir remboursement.js et Charges & Compteurs).
+function garantieResteDu(unite) {
+  return Math.max(0, (unite.garantieMontant || 0) - (unite.garantieEncaissee || 0));
+}
+
+function assuranceResteDu(unite) {
+  if (!unite.assuranceDue) return 0;
+  return Math.max(0, (unite.montantAssurance || 0) - (unite.assuranceEncaissee || 0));
+}
+
+// v85 — le sélecteur manuel "Statut assurance" a été supprimé : l'état "en ordre"
+// se déduit désormais des montants, il ne peut donc plus se désynchroniser d'eux.
 function assuranceAVerifier(unite) {
   if (!unite.assuranceDue) return false;
   const fin = calculerFinAssurance(unite);
   if (!fin) return false;
-  return new Date() > new Date(fin) && unite.assuranceStatut !== 'en_ordre';
+  return new Date() > new Date(fin) && assuranceResteDu(unite) > 0;
 }
 
 function resteEnAttente(unite) {
@@ -748,12 +767,16 @@ function lireFormulaireDansUnite(uniteId) {
   u.finBail = get('finBail') || null;
   u.bailEnregistre = document.getElementById(`f-bailEnregistre-${uniteId}`).checked;
   u.assuranceDue = document.getElementById(`f-assuranceDue-${uniteId}`).checked;
-  u.assuranceStatut = get('assuranceStatut') || null;
   u.garantieMontant = parseFloat(get('garantieMontant')) || 0;
+  u.garantieEncaissee = parseFloat(get('garantieEncaissee')) || 0;
+  u.garantieDatePaiement = get('garantieDatePaiement') || null;
   u.garantieForme = get('garantieForme') || null;
   u.preuveGarantie = get('preuveGarantie') || '';
   if (found.immeuble.id !== 'vannes') {
     u.docAssurance = get('docAssurance') || '';
+    u.assuranceEncaissee = parseFloat(get('assuranceEncaissee')) || 0;
+    u.assuranceDatePaiement = get('assuranceDatePaiement') || null;
+    u.commentaireAssurance = get('commentaireAssurance') || '';
   }
   lireSousLocation(u, get);
   u.domiciliationOrdrePermanent = get('domiciliationOrdrePermanent') || '';
@@ -797,6 +820,28 @@ function champTexteLong(label, id, uniteId, value) {
       <span>${label}</span>
       <textarea id="f-${id}-${uniteId}" rows="3">${value ?? ''}</textarea>
     </label>`;
+}
+
+// v85 — deux champs côte à côte (montant déjà payé + sa date)
+function champDuo(gauche, droite) {
+  return `<div class="champ-duo">${gauche}${droite}</div>`;
+}
+
+// v85 — champ calculé, jamais saisissable : le restant dû découle des deux
+// montants au-dessus de lui et ne doit pas pouvoir être contredit à la main.
+function champCalcule(label, id, uniteId, valeur) {
+  const solde = valeur <= 0;
+  return `
+    <label class="champ champ-calcule">
+      <span>${label}</span>
+      <div class="valeur-calculee${solde ? ' solde' : ''}" id="f-${id}-${uniteId}">${formatMontant(valeur)}</div>
+    </label>`;
+}
+
+// v85 — mention automatique affichée à côté du titre de section
+function badgeEnOrdre(id, uniteId, du, reste) {
+  const visible = du > 0 && reste <= 0;
+  return `<span class="badge-ordre${visible ? '' : ' cache'}" id="f-${id}-${uniteId}">✓ en ordre</span>`;
 }
 
 function champSelect(label, id, uniteId, value, options) {
@@ -863,8 +908,13 @@ function formulaireEdition(immeuble, u) {
       ${champ('Fin réelle du bail', 'finBail', u.id, u.finBail || calculerFinParDefaut(u.debutBail) || '', 'date')}
       ${champCheckbox('Bail enregistré', 'bailEnregistre', u.id, u.bailEnregistre)}
 
-      <div class="section-titre">Garantie locative</div>
+      <div class="section-titre">Garantie locative ${badgeEnOrdre('badgeGarantie', u.id, u.garantieMontant || 0, garantieResteDu(u))}</div>
       ${champ('Montant garantie (€)', 'garantieMontant', u.id, u.garantieMontant, 'number')}
+      ${champDuo(
+        champ('Déjà payé (€)', 'garantieEncaissee', u.id, u.garantieEncaissee, 'number'),
+        champ('Date du paiement', 'garantieDatePaiement', u.id, u.garantieDatePaiement, 'date')
+      )}
+      ${champCalcule('Restant dû (€)', 'garantieResteDuAffiche', u.id, garantieResteDu(u))}
       ${champSelect('Forme', 'garantieForme', u.id, u.garantieForme, [
         ['especes', 'Espèces'], ['compte_bancaire', 'Compte bancaire bloqué'],
         ['garantie_bancaire', 'Garantie bancaire'], ['cpas', 'CPAS']
@@ -874,9 +924,10 @@ function formulaireEdition(immeuble, u) {
         <input type="file" id="f-fichierGarantie-${u.id}" accept="application/pdf,image/*">
         <button type="button" class="btn-connexion" onclick="deposerDocumentGarantie('${u.id}')">📤 Déposer le document</button>
       </div>
-      ${champ('Preuve garantie (référence/note)', 'preuveGarantie', u.id, u.preuveGarantie)}
+      ${champTexteLong('Commentaire garantie', 'preuveGarantie', u.id, u.preuveGarantie)}
+      <p class="hint">Paiements échelonnés, rattrapages, colocataires : le détail se note ici, ligne par ligne.</p>
 
-      <div class="section-titre">Assurance</div>
+      <div class="section-titre">Assurance ${immeuble.id !== 'vannes' ? badgeEnOrdre('badgeAssurance', u.id, (assuranceDueVal ? (u.montantAssurance || 0) : 0), assuranceResteDu({ ...u, assuranceDue: assuranceDueVal })) : ''}</div>
       ${champSelect("Type d'unité", 'typeUnite', u.id, u.typeUnite, [
         ['studio', 'Studio'], ['appartement', 'Appartement'], ['duplex', 'Duplex'],
         ['garage', 'Garage'], ['rdc_commercial', 'RDC commercial'], ['autre', 'Autre']
@@ -886,11 +937,16 @@ function formulaireEdition(immeuble, u) {
         <span>${finAssurance ? finAssurance : '— (renseigner le début du bail)'}</span>
       </div>
       ${champCheckbox('Assurance due par le locataire', 'assuranceDue', u.id, assuranceDueVal)}
-      ${champSelect('Statut assurance', 'assuranceStatut', u.id, u.assuranceStatut, [
-        ['en_ordre', 'En ordre'], ['a_verifier', 'À vérifier']
-      ])}
       ${immeuble.id !== 'vannes' ? champ('Doc. assurance (référence/note)', 'docAssurance', u.id, u.docAssurance) : ''}
-      ${immeuble.id !== 'vannes' ? champ('Montant assurance (€)', 'montantAssurance', u.id, u.montantAssurance, 'number') : `
+      ${immeuble.id !== 'vannes' ? `
+      ${champ('Montant assurance (€)', 'montantAssurance', u.id, u.montantAssurance, 'number')}
+      ${champDuo(
+        champ('Déjà payé (€)', 'assuranceEncaissee', u.id, u.assuranceEncaissee, 'number'),
+        champ('Date du paiement', 'assuranceDatePaiement', u.id, u.assuranceDatePaiement, 'date')
+      )}
+      ${champCalcule('Restant dû (€)', 'assuranceResteDuAffiche', u.id, assuranceResteDu({ ...u, assuranceDue: assuranceDueVal }))}
+      ${champTexteLong('Commentaire assurance', 'commentaireAssurance', u.id, u.commentaireAssurance)}
+      ` : `
         <p class="hint">Vannes : assurance payée directement par le locataire — déposer le document justificatif ci-dessous.</p>
         <p>${u.docAssuranceFichier ? `✓ Document déposé (${u.docAssuranceFichier})` : '✗ Aucun document déposé'}</p>
         <input type="file" id="f-fichierAssuranceVannes-${u.id}" accept="application/pdf,image/*">
@@ -1145,7 +1201,7 @@ const LABELS_CHAMPS_VBA = {
   internet: 'Internet (€)',
   garantieMontant: 'Garantie (€)',
   garantieForme: 'Forme de garantie',
-  preuveGarantie: 'Preuve garantie',
+  preuveGarantie: 'Commentaire garantie',
   debutBail: 'Début du bail',
   montantAssurance: 'Montant assurance (€)',
   commentaires: 'Commentaires',
@@ -1350,11 +1406,10 @@ async function ouvrirVueDettes() {
         const loyerDu = calculerLoyerCC(u) - (u.montantsVerses || 0);
         if (loyerDu > 0) dettesParUnite[cle].loyer += loyerDu;
 
-        // assurance : montant unique, pas cumulé — le dernier mois connu fait foi (elle se reporte telle quelle)
-        if (b.id !== 'vannes' && u.assuranceDue && u.assuranceStatut !== 'en_ordre') {
-          dettesParUnite[cle].assurance = u.montantAssurance || 0;
-        } else if (b.id !== 'vannes') {
-          dettesParUnite[cle].assurance = 0; // remise en ordre depuis, on efface la dette
+        // assurance : montant unique, pas cumulé — le dernier mois connu fait foi.
+        // v85 : on ne compte plus la prime entière mais le seul RESTANT DÛ.
+        if (b.id !== 'vannes') {
+          dettesParUnite[cle].assurance = assuranceResteDu(u);
         }
       }
     }
@@ -1700,6 +1755,32 @@ function render() {
             blocDocGarantie.style.display = ['compte_bancaire', 'garantie_bancaire', 'cpas'].includes(champGarantieForme.value) ? 'block' : 'none';
           });
         }
+        // v85 — restant dû et mention "en ordre" recalculés à chaque frappe,
+        // pour garantie et assurance. Aucune saisie possible du restant dû.
+        function brancherResteDu(cleDu, cleEncaisse, cleAffiche, cleBadge, cleActif) {
+          const champDu = formEl.querySelector(`#f-${cleDu}-${u.id}`);
+          const champEncaisse = formEl.querySelector(`#f-${cleEncaisse}-${u.id}`);
+          const affichage = formEl.querySelector(`#f-${cleAffiche}-${u.id}`);
+          const badge = formEl.querySelector(`#f-${cleBadge}-${u.id}`);
+          if (!champDu || !champEncaisse || !affichage) return;
+          const champActif = cleActif ? formEl.querySelector(`#f-${cleActif}-${u.id}`) : null;
+          const recalculer = () => {
+            const actif = champActif ? champActif.checked : true;
+            const du = actif ? (parseFloat(champDu.value) || 0) : 0;
+            const encaisse = actif ? (parseFloat(champEncaisse.value) || 0) : 0;
+            const reste = Math.max(0, du - encaisse);
+            affichage.textContent = formatMontant(reste);
+            affichage.classList.toggle('solde', reste <= 0);
+            if (badge) badge.classList.toggle('cache', !(du > 0 && reste <= 0));
+          };
+          champDu.addEventListener('input', recalculer);
+          champEncaisse.addEventListener('input', recalculer);
+          if (champActif) champActif.addEventListener('change', recalculer);
+          recalculer();
+        }
+        brancherResteDu('garantieMontant', 'garantieEncaissee', 'garantieResteDuAffiche', 'badgeGarantie', null);
+        brancherResteDu('montantAssurance', 'assuranceEncaissee', 'assuranceResteDuAffiche', 'badgeAssurance', 'assuranceDue');
+
         const champVerse = formEl.querySelector(`#f-montantsVerses-${u.id}`);
         const champDateVersement = formEl.querySelector(`#f-dateVersement-${u.id}`);
         if (champVerse && champDateVersement) {

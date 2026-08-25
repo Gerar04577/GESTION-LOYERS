@@ -647,3 +647,65 @@ input[id^="f-montantAssurance-"] {
   font-family: var(--font-body);
   font-size: 0.9rem;
 }
+
+/* ===== v85 — garantie / assurance : déjà payé, restant dû, mention en ordre ===== */
+
+.champ-duo {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.6rem;
+}
+@media (max-width: 480px) {
+  .champ-duo { grid-template-columns: 1fr; }
+}
+
+/* restant dû : affichage seul, jamais un input — il découle des deux montants
+   au-dessus de lui et ne doit pas pouvoir être contredit à la main */
+.champ-calcule > span::after {
+  content: " calculé";
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  opacity: 0.55;
+  font-weight: 600;
+}
+.valeur-calculee {
+  font-size: 1.5rem;
+  font-weight: 700;
+  padding: 0.45rem 0.55rem;
+  border: 1px dashed var(--paper-line);
+  border-radius: 6px;
+  background: var(--paper);
+  color: var(--alert-red);
+}
+.valeur-calculee.solde { color: var(--ok-color); }
+
+/* mention automatique, remplace l'ancien sélecteur "Statut assurance" */
+.badge-ordre {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  padding: 0.12rem 0.45rem;
+  border-radius: 999px;
+  background: var(--ok-bg);
+  color: var(--ok-color);
+  vertical-align: middle;
+}
+.badge-ordre.cache { display: none; }
+
+/* tableau des dettes locataires */
+.table-dettes th.num,
+.table-dettes td.num { text-align: right; }
+.table-dettes td.cellule-total { font-weight: 700; color: var(--alert-red); }
+.table-dettes tr.ligne-soldee td.cellule-total { color: var(--ok-color); }
+.table-dettes tr.ligne-inoccupee td { color: var(--text-muted); font-style: italic; }
+.table-dettes tfoot td {
+  border-top: 2px solid var(--ink);
+  font-weight: 700;
+  padding-top: 0.55rem;
+  font-size: 0.88rem;
+  background: var(--paper);
+}

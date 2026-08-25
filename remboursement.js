@@ -101,7 +101,8 @@ async function calculerListeRemboursement() {
       parLocataire[cle] = {
         immeuble: b.nom, immeubleId: b.id, unite: u.designation, locataire: u.locataire,
         inoccupe: false,
-        garantieMontant: 0, garantieForme: null,
+        garantieMontant: 0, garantieEncaissee: 0, garantieResteDu: 0, garantieForme: null,
+        assuranceMontant: 0, assuranceEncaissee: 0,
         retardLoyer: 0, retardAssurance: 0
       };
     }
@@ -134,17 +135,29 @@ async function calculerListeRemboursement() {
         parLocataire[cleUnite] = {
           immeuble: b.nom, immeubleId: b.id, unite: u.designation, locataire: null,
           inoccupe: true,
-          garantieMontant: 0, garantieForme: null,
+          garantieMontant: 0, garantieEncaissee: 0, garantieResteDu: 0, garantieForme: null,
+          assuranceMontant: 0, assuranceEncaissee: 0,
           retardLoyer: 0, retardAssurance: 0
         };
         continue;
       }
       const entree = assurerEntree(b, u);
       entree.locataire = u.locataire;
+      // v85 — on exporte les DEUX notions, sans jamais les confondre :
+      //   garantieMontant   : ce qui est contractuellement dû
+      //   garantieEncaissee : ce qui a réellement été reçu -> base du REMBOURSEMENT
+      //                       au départ du locataire (lu par Charges & Compteurs)
+      //   garantieResteDu   : ce qui manque encore -> entre dans la DETTE
+      // retardAssurance conserve son nom (Charges & Compteurs le lit déjà) mais
+      // vaut désormais le restant dû, et non plus la prime entière.
       entree.garantieMontant = u.garantieMontant || 0;
+      entree.garantieEncaissee = u.garantieEncaissee || 0;
+      entree.garantieResteDu = garantieResteDu(u);
       entree.garantieForme = u.garantieForme || null;
-      if (b.id !== 'vannes' && u.assuranceDue && u.assuranceStatut !== 'en_ordre') {
-        entree.retardAssurance = u.montantAssurance || 0;
+      if (b.id !== 'vannes') {
+        entree.assuranceMontant = u.montantAssurance || 0;
+        entree.assuranceEncaissee = u.assuranceEncaissee || 0;
+        entree.retardAssurance = assuranceResteDu(u);
       }
     }
   }
@@ -164,16 +177,50 @@ function afficherListeRemboursement() {
   container.innerHTML = `
     <button class="btn-connexion" style="background:#2e7d4f;color:white;margin-bottom:1rem;" onclick="exporterRemboursementOneDrive()">📤 Enregistrer sur OneDrive (pour Charges et Compteurs)</button>
     <div id="statut-export-remboursement"></div>
-    <table class="table-comparaison">
-      <thead><tr><th>Immeuble</th><th>Unité</th><th>Locataire</th><th>Garantie</th><th>Retard loyer</th><th>Retard assurance</th></tr></thead>
+    <table class="table-comparaison table-dettes">
+      <thead><tr>
+        <th>Immeuble</th><th>Unité</th><th>Locataire</th>
+        <th class="num">Reste garantie</th><th class="num">Reste assurance</th>
+        <th class="num">Retard loyer CC</th><th class="num">Total dû</th>
+      </tr></thead>
       <tbody>
-        ${lignes.map(l => `<tr>
-          <td>${l.immeuble}</td><td>${l.unite}</td><td>${l.inoccupe ? '<em>inoccupé</em>' : l.locataire}</td>
-          <td>${l.inoccupe ? 'inoccupé' : (l.garantieMontant > 0 ? l.garantieMontant.toFixed(2) + ' € (' + (l.garantieForme || '—') + ')' : '—')}</td>
-          <td>${l.inoccupe ? 'inoccupé' : (l.retardLoyer > 0 ? l.retardLoyer.toFixed(2) + ' €' : '—')}</td>
-          <td>${l.inoccupe ? 'inoccupé' : (l.retardAssurance > 0 ? l.retardAssurance.toFixed(2) + ' €' : '—')}</td>
-        </tr>`).join('')}
+        ${lignes.map(l => {
+          if (l.inoccupe) {
+            return `<tr class="ligne-inoccupee">
+              <td>${l.immeuble}</td><td>${l.unite}</td><td><em>inoccupé</em></td>
+              <td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td>
+            </tr>`;
+          }
+          const resteGar = l.garantieResteDu || 0;
+          const resteAss = l.retardAssurance || 0;
+          const retardL = l.retardLoyer || 0;
+          const total = resteGar + resteAss + retardL;
+          const eur = v => v > 0 ? v.toFixed(2) + ' €' : '—';
+          return `<tr class="${total <= 0 ? 'ligne-soldee' : ''}">
+            <td>${l.immeuble}</td><td>${l.unite}</td><td>${l.locataire}</td>
+            <td class="num">${eur(resteGar)}</td>
+            <td class="num">${eur(resteAss)}</td>
+            <td class="num">${eur(retardL)}</td>
+            <td class="num cellule-total">${total.toFixed(2)} €</td>
+          </tr>`;
+        }).join('')}
       </tbody>
+      <tfoot>
+        ${(() => {
+          const actives = lignes.filter(l => !l.inoccupe);
+          const somme = cle => actives.reduce((t, l) => t + (l[cle] || 0), 0);
+          const tGar = somme('garantieResteDu');
+          const tAss = somme('retardAssurance');
+          const tLoy = somme('retardLoyer');
+          return `<tr>
+            <td colspan="3">Total général — ${lignes.length} logement${lignes.length > 1 ? 's' : ''}</td>
+            <td class="num">${tGar.toFixed(2)} €</td>
+            <td class="num">${tAss.toFixed(2)} €</td>
+            <td class="num">${tLoy.toFixed(2)} €</td>
+            <td class="num cellule-total">${(tGar + tAss + tLoy).toFixed(2)} €</td>
+          </tr>`;
+        })()}
+      </tfoot>
     </table>
   `;
 }

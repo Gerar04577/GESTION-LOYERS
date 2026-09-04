@@ -1,3 +1,4 @@
+/* style.css — v87 — 04/09/2026 */
 :root {
   --ink: #5f5770;
   --ink-light: #756c8a;
@@ -709,3 +710,104 @@ input[id^="f-montantAssurance-"] {
   font-size: 0.88rem;
   background: var(--paper);
 }
+
+
+/* ===== MODULE RENTRÉE — ajouté le 02/09/2026 =============================
+   Bloc entièrement séparé : aucune règle existante n'est modifiée. Retirer
+   ce bloc et le script rentree.js suffit à revenir en arrière. */
+
+.vue-rentree { padding: 12px; }
+.rentree-entete { display: flex; align-items: center; gap: 10px;
+  margin-bottom: 10px; }
+.rentree-entete h2 { flex: 1; margin: 0; font-size: 20px; }
+.rentree-annee { display: flex; gap: 4px; }
+.btn-connexion.mini { padding: 6px 12px; font-size: 13px; width: auto; }
+
+.rentree-message { background: #dfeedd; color: #12503d; border-radius: 8px;
+  padding: 10px 12px; margin-bottom: 10px; font-size: 14px; }
+.rentree-presence { background: #fbf3e0; border: 1px solid #e0c98a;
+  border-radius: 10px; padding: 9px 11px; margin-bottom: 10px;
+  font-size: 13px; color: #6b4e11; }
+.rentree-presence p { margin: 5px 0 0; font-size: 11px; color: #8a6a2a; }
+.rentree-resume { margin: 0 0 10px; font-size: 13px; color: #6b6b6b; }
+
+.rentree-manques { width: 100%; padding: 15px; font-size: 15px;
+  font-weight: 700; background: #f5ebd3; color: #5e4a15;
+  border-color: #c8891f; margin-bottom: 14px; }
+
+.rentree-immeuble { margin: 14px 0 6px; font-size: 11px; font-weight: 600;
+  letter-spacing: .07em; text-transform: uppercase; color: #8a8a8a; }
+
+.rentree-ligne { background: #fff; border: 1px solid #e3e0da;
+  border-left: 4px solid #ccc; border-radius: 10px; padding: 11px;
+  margin-bottom: 8px; }
+.rentree-ligne-titre { display: flex; align-items: center; gap: 8px; }
+.rentree-unite { flex: 1; font-size: 15px; font-weight: 600; }
+.rentree-ligne select { padding: 7px 8px; font-size: 13px;
+  border: 1px solid #d0ccc4; border-radius: 8px; background: #faf9f6; }
+
+.rentree-locataires { margin: 6px 0 0; font-size: 13px; color: #4a4a4a; }
+.rentree-locataires .fleche { color: #9a9a9a; }
+.rentree-suivant { padding: 7px 9px; font-size: 13px; min-width: 150px;
+  border: 1px solid #d0ccc4; border-radius: 8px; }
+
+.rentree-montants { display: flex; gap: 8px; margin: 9px 0 0;
+  flex-wrap: wrap; }
+.rentree-montants label { flex: 1; min-width: 92px; font-size: 11px;
+  color: #8a8a8a; display: flex; flex-direction: column; gap: 3px; }
+.rentree-montants input { padding: 9px; font-size: 14px;
+  border: 1px solid #d0ccc4; border-radius: 8px; width: 100%; }
+.rentree-montants input:disabled { background: #f0eeea; color: #9a9a9a; }
+
+/* LES CASES SONT GRANDES : 46 px, au-delà des 44 recommandés par Apple pour
+   une cible tactile. Elles se touchent au pouce, bras tendu. */
+.rentree-cases { display: grid; grid-template-columns: repeat(4, 1fr);
+  gap: 6px; margin-top: 10px; }
+.rentree-case { text-align: center; }
+.rentree-case .case { height: 46px; border-radius: 10px; display: flex;
+  align-items: center; justify-content: center; font-weight: 700;
+  border: 2px solid transparent; }
+.rentree-case .case.ok { background: #dfeedd; border-color: #1d9e75;
+  color: #0b7355; font-size: 24px; }
+.rentree-case .case.manque { background: #fbe9e6; border-color: #c0392b;
+  color: #c0392b; font-size: 26px; }
+.rentree-case .case.sans-objet { background: #f7f6f3;
+  border: 2px dashed #ddd8d0; color: #b0aca4; font-size: 18px; }
+.rentree-case span { display: block; margin-top: 3px; font-size: 11px;
+  color: #8a8a8a; }
+
+.rentree-verser { width: 100%; margin-top: 10px; padding: 13px;
+  font-size: 14px; font-weight: 600; background: #dfeedd; color: #085041;
+  border-color: #1d9e75; }
+.rentree-versee { margin: 9px 0 0; font-size: 12px; color: #1f7a4d; }
+.rentree-rien { padding: 24px 12px; text-align: center; font-size: 15px;
+  color: #1f7a4d; }
+
+.manque-ligne { background: #fff; border: 1px solid #e3e0da;
+  border-left: 4px solid #c0392b; border-radius: 10px; padding: 10px 12px;
+  margin-bottom: 7px; }
+.manque-ligne.inoccupe { border-left-color: #8a8a8a; }
+.manque-qui { margin: 0 0 5px; font-size: 14px; font-weight: 600; }
+.manque-qui span { font-weight: 400; color: #8a8a8a; font-size: 12px;
+  margin-left: 6px; }
+.manque-quoi { margin: 0; display: flex; flex-wrap: wrap; gap: 5px; }
+.manque-quoi span { background: #fbe9e6; color: #8d2b2b; font-size: 11px;
+  padding: 3px 9px; border-radius: 10px; }
+
+.rentree-acces { border-top: 1px solid #e0dcd4; margin-top: 14px;
+  padding-top: 14px; }
+.rentree-acces p { margin: 0 0 9px; font-size: 11px; letter-spacing: .07em;
+  text-transform: uppercase; color: #8a8a8a; text-align: center; }
+.rentree-acces .btn-connexion { width: 100%; padding: 15px; font-size: 15px;
+  margin-bottom: 8px; }
+.rentree-raz { width: 100%; padding: 12px; font-size: 13px;
+  background: #fbe9e6; color: #8d2b2b; border-color: #c0392b;
+  margin-bottom: 14px; }
+.rentree-autre-mois { display: block; margin-top: 3px; font-size: 11px;
+  color: #8a5a12; }
+.rentree-mois { font-size: 11px; color: #8a8a8a; white-space: nowrap; }
+.rentree-douteux { background: #fbe9e6; border: 1px solid #c0392b;
+  border-radius: 10px; padding: 10px 12px; margin-bottom: 10px;
+  font-size: 13px; color: #8d2b2b; }
+.rentree-douteux div { margin-top: 4px; }
+.rentree-douteux p { margin: 6px 0 0; font-size: 11px; }

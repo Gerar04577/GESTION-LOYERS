@@ -1,4 +1,4 @@
-// rentree.js — v95 — 05/09/2026
+// rentree.js — v96 — 05/09/2026
 // Gestion Loyers — module RENTRÉE, entièrement séparé
 //
 // POURQUOI CE MODULE EXISTE
@@ -910,6 +910,15 @@ async function verserUniteRentree(uniteId) {
      porte déjà les données de la rentrée, et le conserver écraserait la
      référence d'origine — l'annulation ne rendrait plus l'état d'août. */
   if (!l.instantane) l.instantane = JSON.parse(JSON.stringify(u));
+
+  /* LE NOUVEAU LOCATAIRE PREND LA PLACE.
+
+     Cette ligne avait disparu lors d'une restauration de bloc le
+     05/09/2026 : le versement posait tous les montants mais laissait le
+     locataire sortant en place. Signalé à l'essai.
+
+     Une unité qui reste garde le sien : il n'y a pas de suivant. */
+  if (changeDeLocataire) u.locataire = l.locataireSuivant;
 
   /* CE QUI EST SAISI ÉCRASE CE QUI VIENT D'AOÛT. CE QUI EST VIDE NE TOUCHE
      À RIEN.

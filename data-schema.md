@@ -50,7 +50,15 @@
   "notesInternes": ""
 }
 ```
-`loyerCC` n'est jamais stocké : il est **calculé** = loyerBrut + charges + poubelles + internet (+ provisionCharges si applicable).
+`loyerCC` n'est jamais stocké : il est **calculé** = loyerBrut + charges + poubelles + internet.
+
+**Quatre termes, pas cinq.** Cette ligne annonçait autrefois « (+ provisionCharges si applicable) » — une intention qui n'a jamais été codée. `calculerLoyerCC()` dans app.js n'additionne que les quatre champs ci-dessus.
+
+**Le champ `provisionCharges` d'une unité est un résidu** : il n'est ni lu ni écrit par app.js, et vaut zéro sur les cinquante unités. Ne pas s'en servir — le poste des charges se porte dans `charges`.
+
+Cette ligne a induit en erreur le module de rentrée en septembre 2026 : un montant y écrivait dans `provisionCharges`, et le loyer toutes charges comprises s'en trouvait faux sur chaque unité versée. Corrigé le 05/09/2026.
+
+Le drapeau `provisionCharges: true` au niveau de l'**immeuble** est autre chose : il commande l'affichage d'une ligne indicative sous le formulaire.
 
 ## Assurance
 ```json

@@ -1,4 +1,4 @@
-/* style.css — v87 — 04/09/2026 */
+/* style.css — v94 — 05/09/2026 */
 :root {
   --ink: #5f5770;
   --ink-light: #756c8a;
@@ -747,14 +747,26 @@ input[id^="f-montantAssurance-"] {
   border: 1px solid #d0ccc4; border-radius: 8px; background: #faf9f6; }
 
 .rentree-locataires { margin: 6px 0 0; font-size: 13px; color: #4a4a4a; }
-.rentree-locataires .fleche { color: #9a9a9a; }
-.rentree-suivant { padding: 7px 9px; font-size: 13px; min-width: 150px;
-  border: 1px solid #d0ccc4; border-radius: 8px; }
 
-.rentree-montants { display: flex; gap: 8px; margin: 9px 0 0;
-  flex-wrap: wrap; }
-.rentree-montants label { flex: 1; min-width: 92px; font-size: 11px;
-  color: #8a8a8a; display: flex; flex-direction: column; gap: 3px; }
+/* LES CHAMPS DE SAISIE.
+   Le locataire suivant sur toute la largeur, l acompte et sa date sur une
+   ligne, les six montants du bail sur deux rangées de trois. */
+.rentree-champs { display: flex; gap: 6px; margin: 8px 0 0; }
+.rentree-champs label { flex: 1; font-size: 10px; color: #8a8a8a;
+  display: flex; flex-direction: column; gap: 2px; }
+.rentree-champs label.large { flex: 2; }
+.rentree-champs label.date { flex: 1.4; }
+.rentree-champs input { padding: 9px; font-size: 13px; width: 100%;
+  border: 1px solid #d0ccc4; border-radius: 8px; }
+.rentree-champs input:disabled { background: #f0eeea; color: #9a9a9a; }
+
+.rentree-sous-titre { margin: 12px 0 5px; font-size: 10px;
+  letter-spacing: .05em; text-transform: uppercase; color: #8a8a8a; }
+
+.rentree-montants { display: grid; grid-template-columns: repeat(3, 1fr);
+  gap: 6px; margin: 0; }
+.rentree-montants label { font-size: 10px; color: #8a8a8a;
+  display: flex; flex-direction: column; gap: 2px; }
 .rentree-montants input { padding: 9px; font-size: 14px;
   border: 1px solid #d0ccc4; border-radius: 8px; width: 100%; }
 .rentree-montants input:disabled { background: #f0eeea; color: #9a9a9a; }
@@ -811,3 +823,18 @@ input[id^="f-montantAssurance-"] {
   font-size: 13px; color: #8d2b2b; }
 .rentree-douteux div { margin-top: 4px; }
 .rentree-douteux p { margin: 6px 0 0; font-size: 11px; }
+.rentree-lu { font-size: 10px; color: #b0aca4; margin-left: 6px; }
+.rentree-note { margin: 8px 0 0; font-size: 12px; color: #6b4e11;
+  background: #fbf3e0; border-radius: 8px; padding: 8px 10px; }
+.rentree-aide { font-weight: 400; text-transform: none; letter-spacing: 0;
+  color: #b0aca4; margin-left: 6px; }
+.btn-connexion.mini.retirer { align-self: flex-end; padding: 9px 10px;
+  background: #fbe9e6; color: #8d2b2b; border-color: #e0b5a0; width: auto; }
+.btn-connexion.mini.ajouter { margin-top: 6px; width: auto;
+  background: #dfeedd; color: #12503d; border-color: #1d9e75; }
+.rentree-aide-bouton { width: 100%; padding: 11px; font-size: 13px;
+  background: #f5ebd3; color: #5e4a15; border-color: #e0ce9e;
+  margin-bottom: 10px; }
+.aide-rentree { font-size: 14px; line-height: 1.55; }
+.aide-rentree h3 { margin: 18px 0 6px; font-size: 15px; color: #12503d; }
+.aide-rentree p { margin: 0 0 8px; }

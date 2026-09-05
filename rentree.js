@@ -1,4 +1,4 @@
-// rentree.js — v96 — 05/09/2026
+// rentree.js — v101 — 05/09/2026
 // Gestion Loyers — module RENTRÉE, entièrement séparé
 //
 // POURQUOI CE MODULE EXISTE
@@ -131,6 +131,20 @@ const MONTANTS_RENTREE = [
   { cle: 'assurance', libelle: 'assurance', champ: 'montantAssurance',
     saufImmeubles: ['vannes'] },
   { cle: 'garantie',  libelle: 'garantie',  champ: 'garantieMontant' },
+];
+
+/* LES SIX CHAMPS DE TEXTE LIBRE d'une unité, tels que le formulaire du mois
+   les présente :
+
+     preuveGarantie                Commentaire garantie
+     docAssurance                  Doc. assurance (référence/note)
+     commentaireAssurance          Commentaire assurance
+     domiciliationOrdrePermanent   Ordre permanent (référence/note)
+     commentaires                  Commentaires
+     notesInternes                 Notes internes                        */
+const CHAMPS_TEXTE_UNITE = [
+  'preuveGarantie', 'docAssurance', 'commentaireAssurance',
+  'domiciliationOrdrePermanent', 'commentaires', 'notesInternes',
 ];
 
 function immeubleEst(immeubleId, liste) {
@@ -345,10 +359,22 @@ function manquesRentree() {
     const l = donneesRentree.unites[unite.id];
     if (!l) return;
     if (l.statut === 'reste' || l.statut === 'inoccupe') return;
-    if (l.verseeLe) return;                /* déjà versée, plus rien à faire */
+
+    /* UNE UNITÉ VERSÉE N'EST PAS UNE UNITÉ TERMINÉE.
+
+       Elle sortait de la liste dès le versement. Or on verse dès que le
+       remplaçant et les montants sont connus — le bail signé, l'avenant et
+       l'EDLE arrivent souvent après. La liste annonçait « rien ne manque »
+       alors que les documents n'étaient pas rentrés, et c'est précisément
+       ce que ce bouton doit empêcher.
+
+       Ce qui n'a plus lieu d'être réclamé après un versement, ce sont les
+       éléments que le versement a posés : le remplaçant, les montants, la
+       date de bail, l'acompte. Les quatre CONTRÔLES, eux, restent dus. */
+    const versee = !!l.verseeLe;
 
     const manquants = [];
-    if (l.statut === 'attente' || !l.locataireSuivant) {
+    if (!versee && (l.statut === 'attente' || !l.locataireSuivant)) {
       manquants.push('remplaçant');
     }
     CONTROLES_RENTREE.forEach(c => {
@@ -357,17 +383,23 @@ function manquesRentree() {
     });
     /* L'acompte n'est pas dû par un locataire qui déménage dans le parc :
        il a déjà versé sa garantie ailleurs. */
-    if (l.statut === 'depart' && !totalAcomptes(l) &&
+    /* Pas de garantie, pas d'acompte à réclamer. */
+    const avecGarantie = montantsApplicables(immeubleId, unite.designation)
+      .some(m => m.cle === 'garantie');
+    if (!versee && avecGarantie && l.statut === 'depart' && !totalAcomptes(l) &&
         !(estDemenagementInterne(l.locataireSuivant, unite.id) && !l.homonyme)) {
       manquants.push('acompte');
     }
-    if (!l.debutBail) manquants.push('début du bail');
-    montantsApplicables(immeubleId, unite.designation).forEach(m => {
-      if (l.montants[m.cle] == null) manquants.push(m.libelle);
-    });
+    if (!versee && !l.debutBail) manquants.push('début du bail');
+    if (!versee) {
+      montantsApplicables(immeubleId, unite.designation).forEach(m => {
+        if (l.montants[m.cle] == null) manquants.push(m.libelle);
+      });
+    }
 
     if (manquants.length) {
-      resultat.push({ immeubleNom, unite, ligne: l, manquants, inoccupe: false });
+      resultat.push({ immeubleNom, unite, ligne: l, manquants,
+                      inoccupe: false, versee });
     }
   });
   /* Du plus incomplet au plus complet. */
@@ -420,6 +452,18 @@ async function ouvrirVueRentree() {
   dessinerVueRentree();
 }
 
+/* Un message d'alerte annonce que quelque chose n'a PAS eu lieu. Une
+   confirmation annonce que c'est fait. Seul le premier mérite qu'on
+   déplace l'écran. */
+function messageEstUneAlerte(message) {
+  /* « n'ont pas pu » couvre l'échec partiel de la remise à zéro : le
+     message annonce un succès pour les unes et un échec pour les autres,
+     en nommant celles qui demandent une correction à la main. Il était
+     classé comme une confirmation, et restait hors de vue. */
+  return /NON vers|impossible|non enregistr|Aucune|à vérifier|saisis |Indique |déjà été versée|place-toi|n'ont pas pu|ATTENTION/i
+    .test(String(message));
+}
+
 function dessinerVueRentree(message) {
   const c = comptesRentree();
   const parImmeuble = {};
@@ -437,7 +481,8 @@ function dessinerVueRentree(message) {
         <button class="btn-connexion mini" onclick="changerAnneeRentree(1)">année +</button>
       </div>
     </div>
-    ${message ? `<div class="rentree-message">${
+    ${message ? `<div class="rentree-message${
+      messageEstUneAlerte(message) ? ' alerte' : ''}">${
       echapperR(message).replace(/\n/g, '<br>')}</div>` : ''}
     ${blocPresenceRentree()}
     <div class="rentree-douteux" id="rentree-douteux" style="display:none"></div>
@@ -469,16 +514,22 @@ function dessinerVueRentree(message) {
      case, un montant d'acompte. Remonter à chaque fois renvoyait au sommet
      d'une liste de cinquante unités — il fallait redescendre pour saisir la
      date, puis remonter. La position est donc conservée. */
-  /* Q2 — UN MESSAGE DOIT ÊTRE VU.
+  /* ON REMONTE POUR UN AVERTISSEMENT, PAS POUR UNE CONFIRMATION.
 
-     Depuis que l'écran ne remonte plus à chaque saisie, un opérateur qui
-     verse le dernier studio de la liste et dont la sauvegarde échoue reste
-     où il est : le message rouge « NON versée » s'affiche tout en haut,
-     hors de sa vue. C'est justement celui qui dit que rien n'est parti sur
-     OneDrive.
+     Un message d'échec — « NON versée », « impossible d'annuler » — doit
+     être vu : il dit que rien n'est parti sur OneDrive, et il s'affiche
+     tout en haut.
 
-     On remonte donc quand il y a un message — et seulement alors. */
-  if (ouvertureRentree || message) { window.scrollTo(0, 0); ouvertureRentree = false; }
+     Mais un versement RÉUSSI affiche lui aussi un message. Remonter alors
+     renvoyait au sommet d'une liste de cinquante unités : après avoir versé
+     la quarantième, il fallait redescendre. Le remède était devenu pire que
+     le mal. Constaté le 05/09/2026.
+
+     On ne remonte donc que pour un message d'alerte. */
+  if (ouvertureRentree || (message && messageEstUneAlerte(message))) {
+    window.scrollTo(0, 0);
+    ouvertureRentree = false;
+  }
   remplirPresenceRentree();
   signalerVersementsDouteux();
 }
@@ -855,7 +906,15 @@ async function verserUniteRentree(uniteId) {
      texte hérité d'avant les montants — alors qu'un loyer saisi à 999 €
      allait précisément être écrit. C'est le dernier message lu avant une
      écriture sur OneDrive : il doit énumérer les remplacements. */
-  const remplaces = montantsApplicables(immeubleIdDe(uniteId), u.designation)
+  const montantsIci = montantsApplicables(immeubleIdDe(uniteId), u.designation);
+  const avecGarantie = montantsIci.some(m => m.cle === 'garantie');
+  /* La décision de déménagement n'est prise que plus bas ; on l'anticipe
+     ici pour le texte, sans l'enregistrer. */
+  const demenagementPrevu = l.instantane ? l.demenagement
+    : (!changeDeLocataire ||
+       (estDemenagementInterne(l.locataireSuivant, uniteId) && !l.homonyme));
+
+  const remplaces = montantsIci
     .filter(m => l.montants[m.cle] != null)
     .map(m => `  ${m.libelle} : ${Number(l.montants[m.cle]).toFixed(2)} €`);
 
@@ -871,10 +930,26 @@ async function verserUniteRentree(uniteId) {
       ? `Ces montants seront remplacés :\n${remplaces.join('\n')}\n\n`
       : `Aucun montant saisi : rien ne sera remplacé.\n\n`) +
     (l.debutBail ? `Bail du ${l.debutBail}, pour douze mois.\n` : '') +
+    /* S2 — ON N'ANNONCE PAS UNE ÉCRITURE QUI N'AURA PAS LIEU.
+
+       Le code ne pose plus de garantie hors périmètre, mais le texte
+       additionnait les acomptes sans se poser la question : sur le garage,
+       il annonçait 400 € qui n'étaient jamais écrits. Et un acompte saisi
+       là où il n'y a pas de garantie mérite d'être signalé, plutôt
+       qu'ignoré en silence. */
     (changeDeLocataire && totalAcomptes(l)
-      ? `Garantie encaissée : ${totalAcomptes(l).toFixed(2)} € (total des acomptes).\n` : '') +
-    (changeDeLocataire && premierVersementPrevu(l)
+      ? (avecGarantie
+          ? `Garantie encaissée : ${totalAcomptes(l).toFixed(2)} € (total des acomptes).\n`
+          : `ATTENTION : cette unité n'a pas de garantie. Les ${
+              totalAcomptes(l).toFixed(2)} € d'acompte saisis ne seront pas portés.\n`)
+      : '') +
+    /* DEUX PHRASES, car les deux règles ne sont pas la même : l'argent
+       suit la personne, les textes suivent l'unité. Une seule phrase était
+       fausse pour l'une ou pour l'autre dans le cas du déménagement. */
+    (changeDeLocataire && premierVersementPrevu(l) && !demenagementPrevu
       ? `L'assurance payée et les loyers versés par le sortant repartent à zéro.\n` : '') +
+    (changeDeLocataire && premierVersementPrevu(l)
+      ? `Les notes et références de l'unité sont effacées.\n` : '') +
     `\nLes champs laissés vides ne sont pas touchés.`);
   if (!ok) return;
 
@@ -946,8 +1021,17 @@ async function verserUniteRentree(uniteId) {
        jamais additionnée. C'est ce qui permet de verser plusieurs fois la
        même unité au fil des acomptes qui arrivent, sans jamais compter
        deux fois. */
-    u.garantieEncaissee = total;
-    u.garantieDatePaiement = dernierAcompte;
+    /* LA GARANTIE N'EST PORTÉE QUE LÀ OÙ ELLE S'APPLIQUE.
+
+       Le garage n'a qu'un loyer : lui poser une garantie encaissée de
+       400 € parce qu'un acompte a été saisi n'a pas de sens. Constaté en
+       simulation le 05/09/2026 — le garage recevait 400 € alors qu'aucun
+       champ de garantie ne lui est demandé. */
+    if (montantsApplicables(immeubleIdDe(uniteId), u.designation)
+        .some(m => m.cle === 'garantie')) {
+      u.garantieEncaissee = total;
+      u.garantieDatePaiement = dernierAcompte;
+    }
 
     /* L'ASSURANCE ENCAISSÉE ET LES LOYERS VERSÉS repartent de zéro AU
        PREMIER VERSEMENT SEULEMENT : ils viennent d'août et appartiennent au
@@ -967,6 +1051,32 @@ async function verserUniteRentree(uniteId) {
       u.montantsVerses = 0;
       u.dateVersement = null;      /* P7 : pas de date sans paiement */
     }
+  }
+
+  /* LES TEXTES SUIVENT L'UNITÉ, L'ARGENT SUIT LA PERSONNE.
+
+     Deux questions distinctes, que j'avais confondues.
+
+     L'ARGENT — garantie encaissée, assurance payée, loyers versés —
+     appartient à la personne. Un déménagement interne la conserve : c'est
+     le même argent, simplement rattaché à un autre studio. D'où la
+     condition `!demenagement` du bloc ci-dessus.
+
+     LES SIX CHAMPS DE TEXTE, eux, sont attachés au STUDIO. Les notes du
+     studio 1 parlent de celui qui l'occupait ; celles du déménageur sont
+     restées dans le studio 7 qu'il vient de quitter. Un déménagement ne dit
+     pas que l'unité garde son occupant — il dit que l'entrant vient
+     d'ailleurs dans le parc. L'unité change bien de locataire.
+
+     Les exclure du déménagement laissait donc Marc hériter des notes, de la
+     police d'assurance et de l'ordre permanent de son prédécesseur — le
+     risque de litige que ce même code invoque pour justifier la remise à
+     vide. Corrigé le 05/09/2026.
+
+     La condition est donc `changeDeLocataire`, pas `!demenagement` : seule
+     une unité qui RESTE garde ses textes. */
+  if (changeDeLocataire && premierVersement) {
+    CHAMPS_TEXTE_UNITE.forEach(c => { u[c] = ''; });
   }
 
   /* La date du dernier acompte a sa place dans garantieDatePaiement, posée
@@ -999,7 +1109,9 @@ async function verserUniteRentree(uniteId) {
   l.verseeVers = moisAffiche;
   l.versePar = (typeof obtenirMonPrenom === 'function') ? obtenirMonPrenom() : '';
   await enregistrerRentree();
-  dessinerVueRentree(`${u.designation} versée dans ${libelleMois(moisAffiche)}.`);
+  /* Pas de message en tête pour une réussite : la ligne elle-même porte
+     désormais « Versée dans … », visible à l'endroit où l'on travaille. */
+  dessinerVueRentree();
 }
 
 /* SAUVEGARDER ET VÉRIFIER QUE C'EST PARTI.
@@ -1213,7 +1325,8 @@ async function ouvrirVueManques() {
         html += `<div class="manque-ligne${m.inoccupe ? ' inoccupe' : ''}">
           <p class="manque-qui">${echapperR(
             m.ligne.locataireSuivant || (m.inoccupe ? 'INOCCUPÉ' : 'remplaçant inconnu'))}
-            <span>${echapperR(m.unite.designation)}</span></p>
+            <span>${echapperR(m.unite.designation)}</span>${
+            m.versee ? `<span class="manque-versee">déjà versée</span>` : ''}</p>
           <p class="manque-quoi">${m.manquants.map(x =>
             `<span>${echapperR(x)}</span>`).join('')}</p>
         </div>`;
@@ -1303,6 +1416,14 @@ function ouvrirAideRentree() {
       et les loyers versés par le sortant repartent à zéro — ils ne sont pas
       les siens. Aux versements suivants ils sont conservés : ce sont
       désormais ceux du nouveau locataire.</p>
+      <p>Les six champs de texte libre de l'unité repartent à vide eux
+      aussi : commentaire garantie, document et commentaire d'assurance,
+      ordre permanent, commentaires et notes internes. Ils parlaient du
+      locataire précédent.</p>
+      <p><strong>L'argent suit la personne, les textes suivent l'unité.</strong>
+      Un locataire qui déménage dans le parc garde sa garantie — c'est le même
+      argent —, mais l'unité où il arrive perd les notes de celui qui la
+      quittait : elles ne le concernent pas.</p>
 
       <h3>Un locataire qui reste</h3>
       <p>Son bail est renouvelé, son loyer peut être indexé. Saisis les
@@ -1318,6 +1439,10 @@ function ouvrirAideRentree() {
       <p>Le bouton liste, locataire par locataire, ce qui reste à faire avant
       la rentrée. Les unités qui restent et celles laissées volontairement
       inoccupées n'y figurent pas.</p>
+      <p><strong>Une unité versée y reste tant que ses documents ne sont pas
+      rentrés</strong> — elle porte alors la mention « déjà versée ». On
+      verse dès que le remplaçant et les montants sont connus ; le bail
+      signé, l'avenant et l'EDLE arrivent souvent après.</p>
 
       <h3>Travailler à deux</h3>
       <p>Un bandeau signale qu'une autre personne utilise l'application.

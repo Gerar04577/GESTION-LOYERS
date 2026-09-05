@@ -1,4 +1,4 @@
-/* style.css — v96 — 05/09/2026 */
+/* style.css — v101 — 05/09/2026 */
 :root {
   --ink: #5f5770;
   --ink-light: #756c8a;
@@ -863,3 +863,6 @@ input[id^="f-montantAssurance-"] {
 .vue-rentree .rentree-verser { color: #085041; background: #dfeedd; }
 .vue-rentree .btn-connexion.mini.retirer { color: #8d2b2b; background: #fbe9e6; }
 .vue-rentree .btn-connexion.mini.ajouter { color: #12503d; background: #dfeedd; }
+.manque-versee { background: #dfeedd; color: #12503d; font-size: 10px;
+  padding: 2px 7px; border-radius: 8px; margin-left: 6px; font-weight: 600; }
+.rentree-message.alerte { background: #fbe9e6; color: #8d2b2b; }

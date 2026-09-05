@@ -1,4 +1,4 @@
-// rentree.js — v94 — 05/09/2026
+// rentree.js — v95 — 05/09/2026
 // Gestion Loyers — module RENTRÉE, entièrement séparé
 //
 // POURQUOI CE MODULE EXISTE

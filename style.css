@@ -1,4 +1,4 @@
-/* style.css — v94 — 05/09/2026 */
+/* style.css — v95 — 05/09/2026 */
 :root {
   --ink: #5f5770;
   --ink-light: #756c8a;
@@ -838,3 +838,28 @@ input[id^="f-montantAssurance-"] {
 .aide-rentree { font-size: 14px; line-height: 1.55; }
 .aide-rentree h3 { margin: 18px 0 6px; font-size: 15px; color: #12503d; }
 .aide-rentree p { margin: 0 0 8px; }
+
+/* LES BOUTONS DE L'ÉCRAN DE RENTRÉE SONT SUR FOND CLAIR.
+
+   btn-connexion est conçu pour l'en-tête sombre : color: var(--paper),
+   c'est-à-dire du texte blanc. Sur le fond clair de cet écran, il devenait
+   invisible — les boutons « Retour », « année − » et « année + »
+   paraissaient vides. Signalé le 05/09/2026 sur capture.
+
+   On redonne donc une couleur lisible à tous les boutons de cet écran,
+   sans toucher au style d'origine qui sert ailleurs. */
+.vue-rentree .btn-connexion {
+  color: #2c2c2c;
+  border-color: #c9c4bb;
+  background: #faf9f6;
+  margin-top: 0;
+}
+.vue-rentree .btn-connexion:hover { background: #f0eeea; }
+
+/* Les boutons qui portent déjà leur propre couleur la conservent. */
+.vue-rentree .rentree-manques { color: #5e4a15; background: #f5ebd3; }
+.vue-rentree .rentree-aide-bouton { color: #5e4a15; background: #f5ebd3; }
+.vue-rentree .rentree-raz { color: #8d2b2b; background: #fbe9e6; }
+.vue-rentree .rentree-verser { color: #085041; background: #dfeedd; }
+.vue-rentree .btn-connexion.mini.retirer { color: #8d2b2b; background: #fbe9e6; }
+.vue-rentree .btn-connexion.mini.ajouter { color: #12503d; background: #dfeedd; }

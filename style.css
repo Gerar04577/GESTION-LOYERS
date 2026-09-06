@@ -1,4 +1,4 @@
-/* style.css — v127 — 06/09/2026 */
+/* style.css — v131 — 06/09/2026 */
 :root {
   --ink: #5f5770;
   --ink-light: #756c8a;
@@ -907,7 +907,11 @@ input[id^="f-montantAssurance-"] {
   padding: 10px 12px; background: #1f2e28; color: #fff; }
 .apercu-cles-nom { flex: 1; font-size: 12px; font-weight: 700;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.apercu-cles-barre .btn-connexion { width: auto; margin: 0; padding: 8px 14px; }
+.apercu-cles-barre .btn-connexion { width: auto; margin: 0; padding: 8px 12px;
+  font-size: 12px; white-space: nowrap; }
+.apercu-cles-barre .btn-connexion[disabled] { opacity: 0.6; }
+#apercu-cles-enregistrer { background: #1d9e75; color: #fff; border-color: #158a64;
+  font-weight: 700; }
 .apercu-cles-cadre { flex: 1; width: 100%; border: 0; background: #fff; }
 .apercu-cles-aide { margin: 0; padding: 10px 12px; font-size: 12px;
   color: #55524b; background: #f4f1ea; border-top: 1px solid #d5d5cc; }

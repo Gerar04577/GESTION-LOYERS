@@ -1,4 +1,4 @@
-// rentree.js — v130 — 06/09/2026
+// rentree.js — v131 — 06/09/2026
 // Gestion Loyers — module RENTRÉE, entièrement séparé
 //
 // POURQUOI CE MODULE EXISTE
@@ -2348,8 +2348,22 @@ async function preparerDossierEdle(immeubleId, immeubleNom, unite, l) {
     equivalences.push(`« ${immeubleNom} » se range dans le dossier « ${
       nomImmeubleOneDrive} »`);
   }
-  if (normaliserNom(nomUnite) !== normaliserNom(unite.designation)) {
+  /* « Studio 1 » CONTRE « STUDIO 1 NIMY » N'EST PAS UN DOUTE.
+
+     Les désignations de l'application répètent le nom de l'immeuble, pas
+     les dossiers de OneDrive. L'avertissement se serait donc déclenché sur
+     les CINQUANTE unités, et aurait noyé les vrais doutes — un dossier
+     créé, un locataire mal rapproché. Constaté par Gérard à l'essai le
+     06/09/2026, capture à l'appui.
+
+     On ne s'inquiète que si le nom diffère AUTREMENT que par le nom de
+     l'immeuble en trop. */
+  const uniteCourte = uniteSansImmeuble(immeubleNom, unite.designation);
+  if (normaliserNom(nomUnite) !== normaliserNom(unite.designation) &&
+      normaliserNom(nomUnite) !== normaliserNom(uniteCourte)) {
     doutes.push(`le dossier de l'unité s'appelle « ${nomUnite} » et non « ${unite.designation} »`);
+  } else if (normaliserNom(nomUnite) !== normaliserNom(unite.designation)) {
+    equivalences.push(`« ${unite.designation} » se range dans le dossier « ${nomUnite} »`);
   }
 
   const enfantsUnite = await enfantsDeRef(trouveUnite.ref);
@@ -2794,6 +2808,17 @@ function documentCles(immeubleId, immeubleNom, unite, l) {
 }
 
 /* Le bouton : contrôle, produit, télécharge, dépose, et dit où. */
+/* ON REGARDE LA PIÈCE AVANT DE DÉCIDER DE LA RANGER.
+
+   L'enchaînement était inverse : il fallait choisir un dossier pour un
+   document qu'on n'avait pas encore vu. C'est moi qui l'avais inversé, pour
+   ne pas montrer une pièce comme déposée avant de savoir où elle allait —
+   mais le besoin de Gérard est plus juste. Corrigé le 06/09/2026.
+
+   Le bouton n'établit donc plus rien dans OneDrive : il affiche. Le dépôt
+   part d'un second bouton, dans l'aperçu. */
+let apercuClesUniteId = null;
+
 async function documentClesRentree(uniteId) {
   const t = toutesUnitesRentree().find(x => x.unite.id === uniteId);
   if (!t) return;
@@ -2808,56 +2833,70 @@ async function documentClesRentree(uniteId) {
 
   const contenu = documentCles(t.immeubleId, t.immeubleNom, t.unite, l);
   const nom = nomFichierCles(t.immeubleNom, t.unite, l.locataireSuivant);
+  apercuClesUniteId = uniteId;
+  afficherApercuCles(contenu, nom.replace(/\.[^.]+$/, '') + '.pdf');
+}
 
+/* Le dépôt, déclenché depuis l'aperçu. */
+async function enregistrerDocumentCles() {
+  const uniteId = apercuClesUniteId;
+  const t = uniteId && toutesUnitesRentree().find(x => x.unite.id === uniteId);
+  if (!t) return;
+  const l = ligneRentree(uniteId);
+
+  const nom = nomFichierCles(t.immeubleNom, t.unite, l.locataireSuivant);
   /* Word et PDF portent la même racine : on les retrouve côte à côte dans
      le dossier, et on sait au premier coup d'œil qu'il s'agit de la même
      pièce sous deux formes. */
   const nomDocx = nom.replace(/\.[^.]+$/, '') + '.docx';
   const nomPdf  = nom.replace(/\.[^.]+$/, '') + '.pdf';
 
+  const bouton = document.getElementById('apercu-cles-enregistrer');
+  const dire = (txt) => {
+    const z = document.getElementById('apercu-cles-chemin');
+    if (z) z.textContent = txt;
+  };
+  if (bouton) { bouton.disabled = true; bouton.textContent = '⏳ Dépôt…'; }
+  const rendreLeBouton = () => {
+    if (bouton) { bouton.disabled = false; bouton.textContent = '💾 Enregistrer dans OneDrive'; }
+  };
+
   /* LA DESTINATION EST MONTRÉE AVANT D'Y ÉCRIRE.
 
      Immobilier 2025-2026 / <immeuble> / <studio> / <locataire> / EDLE —
-     le même chemin que le bail et l'état des lieux.
-
-     Elle repose sur des rapprochements de noms qui peuvent se tromper, et
-     une pièce classée chez un autre locataire ne se voit pas. On montre
-     donc le chemin et les doutes, et on attend. */
+     le même chemin que le bail et l'état des lieux. Elle repose sur des
+     rapprochements de noms qui peuvent se tromper, et une pièce classée
+     chez un autre locataire ne se voit pas. */
   let plan;
   try {
     plan = await preparerDossierEdle(t.immeubleId, t.immeubleNom, t.unite, l);
   } catch (e) {
-    return dessinerVueRentree(`${nomDocx} : NON enregistré dans OneDrive — ` +
+    rendreLeBouton();
+    return annoncerCles(`${nomDocx} : NON enregistré dans OneDrive — ` +
       String((e && e.message) || e) + `.`);
   }
 
   const question = `Enregistrer le document dans :\n\n${plan.chemin}\n\n` +
-    (plan.equivalences.length
-      ? `${plan.equivalences.join('\n')}\n\n` : '') +
+    (plan.equivalences.length ? `${plan.equivalences.join('\n')}\n\n` : '') +
     (plan.doutes.length ? `⚠️ À vérifier :\n— ${plan.doutes.join('\n— ')}\n\n` : '') +
     `Deux fichiers seront déposés : ${nomDocx} et ${nomPdf}.`;
   if (!confirm(question)) {
-    return dessinerVueRentree(
-      `${t.unite.designation} : rien n'a été enregistré. Corrige le dossier ` +
-      `dans OneDrive si besoin, puis recommence.`);
+    rendreLeBouton();
+    dire("Rien n'a été enregistré.");
+    return;
   }
 
   let ref, chemin = plan.chemin, dossierCree = plan.creerLoc;
   try {
     ref = await creerDossierEdle(plan);
   } catch (e) {
-    return dessinerVueRentree(`${nomDocx} : NON enregistré dans OneDrive — ` +
+    rendreLeBouton();
+    return annoncerCles(`${nomDocx} : NON enregistré dans OneDrive — ` +
       String((e && e.message) || e) + `.`);
   }
+  dire(chemin + ' (dépôt en cours…)');
 
-  /* L'aperçu vient APRÈS la confirmation : on ne montre pas une pièce comme
-     déposée avant de savoir où elle va. */
-  afficherApercuCles(contenu, nomPdf);
-  if (document.getElementById('apercu-cles-chemin')) {
-    document.getElementById('apercu-cles-chemin').textContent = chemin + ' (dépôt en cours…)';
-  }
-
-  /* 2. LE WORD DANS ONEDRIVE. */
+  /* LE WORD DANS ONEDRIVE. */
   let item;
   try {
     const blob = await construireDocxCles(t.immeubleId, t.immeubleNom, t.unite, l);
@@ -2869,27 +2908,22 @@ async function documentClesRentree(uniteId) {
     }
     item = await res.json();
     /* LE CHEMIN AFFICHÉ EST CELUI DE MICROSOFT, PAS UN CHEMIN RECONSTITUÉ.
-
        Les dossiers de OneDrive ne portent pas toujours le nom que
-       l'application donne aux unités — c'est la raison d'être de l'écran
-       « Comparer noms OneDrive ». Un chemin deviné serait faux là où on en
-       a le plus besoin. Même règle que pour les documents de garantie. */
+       l'application donne aux unités ; un chemin deviné serait faux là où
+       on en a le plus besoin. */
     const brut = item.parentReference && item.parentReference.path;
     if (brut) {
       chemin = decodeURIComponent(String(brut).replace(/^\/[^:]*:?/, ''))
         .replace(/^\/+/, '').split('/').filter(Boolean).join(' / ');
     }
-    if (document.getElementById('apercu-cles-chemin')) {
-      document.getElementById('apercu-cles-chemin').textContent = chemin;
-    }
+    dire(chemin);
   } catch (e) {
-    /* Même raison : le message attend la fermeture de l'aperçu. */
-    annoncerCles(`${nomDocx} : NON enregistré dans OneDrive — ` +
+    rendreLeBouton();
+    return annoncerCles(`${nomDocx} : NON enregistré dans OneDrive — ` +
       String((e && e.message) || e) + `.`);
-    return;
   }
 
-  /* 3. LE PDF, CONVERTI PAR ONEDRIVE ET DÉPOSÉ À CÔTÉ.
+  /* LE PDF, CONVERTI PAR ONEDRIVE ET DÉPOSÉ À CÔTÉ.
 
      C'est le format qu'un locataire ouvre sans y penser, sur les quatre
      systèmes. Son échec ne doit pas faire passer le Word pour perdu : il
@@ -2903,23 +2937,21 @@ async function documentClesRentree(uniteId) {
         ? await detailErreur(res) : 'refus de Microsoft');
     }
   } catch (e) {
-    annoncerCles(`${nomDocx} enregistré — ${chemin}\n` +
+    if (bouton) { bouton.disabled = true; bouton.textContent = '✓ Word enregistré'; }
+    return annoncerCles(`${nomDocx} enregistré — ${chemin}\n` +
       `Le PDF n'a PAS pu être produit : ` + String((e && e.message) || e) +
       `. Ouvre le Word depuis OneDrive et enregistre-le en PDF à la main.`);
-    return;
   }
 
-  /* ON NOTE OÙ LA PIÈCE EST PARTIE.
-
-     Le chemin n'apparaissait que dans l'aperçu, puis disparaissait : le
-     lendemain, plus rien ne disait où le document avait été déposé. Il est
-     désormais conservé sur la ligne, comme pour les documents de garantie
-     dans la fiche de l'unité. */
+  /* ON NOTE OÙ LA PIÈCE EST PARTIE. Le chemin n'apparaissait que dans
+     l'aperçu, puis disparaissait : le lendemain, plus rien ne disait où le
+     document avait été déposé. */
   l.clesDepotLe = new Date().toISOString();
   l.clesChemin = chemin;
   l.clesFichier = nomPdf;
   await enregistrerRentree();
 
+  if (bouton) { bouton.disabled = true; bouton.textContent = '✓ Enregistré'; }
   annoncerCles(
     `Document enregistré — ${chemin} / ${nomPdf}\n` +
     `Le Word est déposé au même endroit, sous le même nom.` +
@@ -2958,12 +2990,15 @@ function afficherApercuCles(contenu, nomPdf) {
   boite.innerHTML = `
     <div class="apercu-cles-barre">
       <span class="apercu-cles-nom">${echapperR(nomPdf)}</span>
+      <button class="btn-connexion" id="apercu-cles-enregistrer"
+        onclick="enregistrerDocumentCles()">💾 Enregistrer dans OneDrive</button>
       <button class="btn-connexion" onclick="fermerApercuCles()">Fermer</button>
     </div>
     <iframe id="apercu-cles-cadre" class="apercu-cles-cadre" title="Document"></iframe>
-    <p class="apercu-cles-aide">📁 <span id="apercu-cles-chemin">dépôt en cours…</span>
-    <br>Le PDF est déposé à côté du Word : c'est lui qu'il faut joindre au
-    courriel du locataire.</p>`;
+    <p class="apercu-cles-aide">📁 <span id="apercu-cles-chemin">Pas encore enregistré —
+    relis le document, puis touche « Enregistrer ».</span>
+    <br>Un Word et un PDF seront déposés dans le dossier EDLE du locataire.
+    C'est le PDF qu'il faut joindre au courriel.</p>`;
   document.body.appendChild(boite);
   const cadre = document.getElementById('apercu-cles-cadre');
   if (cadre) cadre.srcdoc = contenu;

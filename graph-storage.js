@@ -1,3 +1,4 @@
+// graph-storage.js — v121 — 06/09/2026
 // Gestion Loyers — stockage des données dans OneDrive
 // Un fichier PAR MOIS dans un sous-dossier dédié "GESTION-LOYERS/historique",
 // à l'intérieur du dossier PARTAGÉ "Immobilier 2025-2026" (le même que VéroS).
@@ -262,5 +263,31 @@ async function televerserFichierDansSousDossier(refDossierParent, nomSousDossier
     body: fichier
   });
   if (!res.ok) throw new Error(`Dépôt du fichier "${nomFichier}" : ${await detailErreur(res)}`);
-  return nomFichier;
+
+  /* ON RAPPORTE OÙ LE FICHIER EST RÉELLEMENT ARRIVÉ.
+
+     La fonction ne rendait que le nom du fichier. L'écran affichait donc
+     « Document déposé » sans dire ni où ni quand : impossible de retrouver
+     la pièce dans OneDrive sans la chercher à la main.
+
+     Le chemin est celui que Microsoft renvoie, pas un chemin reconstitué :
+     les dossiers de OneDrive ne portent pas toujours le même nom que les
+     unités de l'application — c'est même la raison d'être de l'écran
+     « Comparer noms OneDrive ». Un chemin deviné aurait été faux.
+
+     En cas de réponse illisible, on rend au moins le nom : le dépôt a eu
+     lieu, ce serait un tort de le faire passer pour un échec. */
+  let chemin = null, webUrl = null;
+  try {
+    const item = await res.json();
+    webUrl = item.webUrl || null;
+    const brut = item.parentReference && item.parentReference.path;
+    if (brut) {
+      chemin = decodeURIComponent(String(brut).replace(/^\/[^:]*:?/, ''))
+        .replace(/^\/+/, '').split('/').filter(Boolean).join(' / ')
+        + ' / ' + (item.name || nomFichier);
+    }
+  } catch (e) { /* le dépôt a réussi : l'absence de chemin ne l'annule pas */ }
+
+  return { nom: nomFichier, chemin, webUrl };
 }

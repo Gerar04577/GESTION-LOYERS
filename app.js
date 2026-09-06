@@ -1,3 +1,4 @@
+// app.js — v121 — 06/09/2026
 // Gestion Loyers — logique applicative
 // Étape 6 : suivi mensuel — un mois en cours créé automatiquement, mois passés
 // consultables ET modifiables (ex. loyer payé en retard, noté après coup).
@@ -922,7 +923,7 @@ function formulaireEdition(immeuble, u) {
         ['garantie_bancaire', 'Garantie bancaire'], ['cpas', 'CPAS']
       ])}
       <div id="bloc-doc-garantie-${u.id}" style="display:${['compte_bancaire','garantie_bancaire','cpas'].includes(u.garantieForme) ? 'block' : 'none'};">
-        <p>${u.docGarantieFichier ? `✓ Document déposé (${u.docGarantieFichier})` : '✗ Aucun document déposé'}</p>
+        ${blocDocumentDepose(u.docGarantieFichier, u.docGarantieDepotLe, u.docGarantieChemin)}
         <input type="file" id="f-fichierGarantie-${u.id}" accept="application/pdf,image/*">
         <button type="button" class="btn-connexion" onclick="deposerDocumentGarantie('${u.id}')">📤 Déposer le document</button>
       </div>
@@ -950,7 +951,7 @@ function formulaireEdition(immeuble, u) {
       ${champTexteLong('Commentaire assurance', 'commentaireAssurance', u.id, u.commentaireAssurance)}
       ` : `
         <p class="hint">Vannes : assurance payée directement par le locataire — déposer le document justificatif ci-dessous.</p>
-        <p>${u.docAssuranceFichier ? `✓ Document déposé (${u.docAssuranceFichier})` : '✗ Aucun document déposé'}</p>
+        ${blocDocumentDepose(u.docAssuranceFichier, u.docAssuranceDepotLe, u.docAssuranceChemin)}
         <input type="file" id="f-fichierAssuranceVannes-${u.id}" accept="application/pdf,image/*">
         <button type="button" class="btn-connexion" onclick="deposerDocumentAssurance('${u.id}')">📤 Déposer le document</button>
       `}
@@ -1280,6 +1281,52 @@ function repondreDifferenceVba(confirmer) {
   afficherProchaineDifferenceVba();
 }
 
+/* CE QUI EST AFFICHÉ SOUS UN DOCUMENT DÉPOSÉ.
+
+   « ✓ Document déposé (contrat.pdf) » ne disait ni quand ni où. La date et
+   le chemin OneDrive sont maintenant conservés au dépôt et rappelés à
+   chaque ouverture de la fiche — c'est ce qu'on regarde des mois plus tard,
+   quand il faut retrouver la pièce. Ajouté le 06/09/2026. */
+function echapperHtml(t) {
+  return String(t == null ? '' : t).replace(/[&<>"']/g, c =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+}
+
+function dateHeureFr(iso) {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return null;
+  return d.toLocaleDateString('fr-BE', { day: '2-digit', month: '2-digit', year: 'numeric' })
+    + ' à ' + d.toLocaleTimeString('fr-BE', { hour: '2-digit', minute: '2-digit' });
+}
+
+/* LE DÉPÔT PEUT RENDRE DEUX CHOSES DIFFÉRENTES.
+
+   televerserFichierDansSousDossier rendait le seul nom du fichier ; depuis
+   la v120 il rend { nom, chemin }. Si graph-storage.js n'est pas mis à jour
+   en même temps que ce fichier — oubli de dépôt, ou copie encore en cache
+   dans le navigateur — on récupérerait une chaîne, `depot.nom` vaudrait
+   undefined, et la fiche annoncerait « Aucun document déposé » alors que le
+   fichier serait bel et bien dans OneDrive.
+
+   On accepte donc les deux formes. Le pire défaut serait de faire passer un
+   dépôt réussi pour un échec. */
+function normaliserDepot(retour) {
+  if (typeof retour === 'string') return { nom: retour, chemin: null };
+  return { nom: (retour && retour.nom) || null, chemin: (retour && retour.chemin) || null };
+}
+
+function blocDocumentDepose(nomFichier, depotLe, chemin) {
+  if (!nomFichier) return '<p>✗ Aucun document déposé</p>';
+  const quand = dateHeureFr(depotLe);
+  return `<p style="margin-bottom:0.2rem;">✓ Document sauvé${
+    quand ? ` le ${quand}` : ''} — <strong>${echapperHtml(nomFichier)}</strong></p>` +
+    (chemin
+      ? `<p style="margin:0 0 0.6rem;font-size:0.8rem;color:#5a5a52;word-break:break-word;">📁 ${
+          echapperHtml(chemin)}</p>`
+      : `<p style="margin:0 0 0.6rem;font-size:0.8rem;color:#5a5a52;">📁 Chemin non enregistré — redépose le document pour le connaître.</p>`);
+}
+
 async function deposerDocumentGarantie(uniteId) {
   const champFichier = document.getElementById(`f-fichierGarantie-${uniteId}`);
   const fichier = champFichier && champFichier.files[0];
@@ -1292,10 +1339,14 @@ async function deposerDocumentGarantie(uniteId) {
 
   try {
     const refLocataire = await obtenirRefLocataire(b.id, u.designation, u.locataire);
-    const nomDepose = await televerserFichierDansSousDossier(refLocataire, 'Garantie', fichier);
-    u.docGarantieFichier = nomDepose;
+    const depot = normaliserDepot(
+      await televerserFichierDansSousDossier(refLocataire, 'Garantie', fichier));
+    u.docGarantieFichier = depot.nom;
+    u.docGarantieChemin = depot.chemin || null;
+    u.docGarantieDepotLe = new Date().toISOString();
     sauvegarder();
-    alert(`Document "${nomDepose}" déposé dans OneDrive (dossier Garantie de ${u.locataire}).`);
+    alert(`Document sauvé le ${dateHeureFr(u.docGarantieDepotLe)}\n\n${depot.nom}\n\n${
+      depot.chemin || `dossier Garantie de ${u.locataire}`}`);
     ouvrirEdition(uniteId);
   } catch (e) {
     alert("Échec du dépôt : " + e.message);
@@ -1314,10 +1365,14 @@ async function deposerDocumentAssurance(uniteId) {
 
   try {
     const refLocataire = await obtenirRefLocataire(b.id, u.designation, u.locataire);
-    const nomDepose = await televerserFichierDansSousDossier(refLocataire, 'Assurance', fichier);
-    u.docAssuranceFichier = nomDepose;
+    const depot = normaliserDepot(
+      await televerserFichierDansSousDossier(refLocataire, 'Assurance', fichier));
+    u.docAssuranceFichier = depot.nom;
+    u.docAssuranceChemin = depot.chemin || null;
+    u.docAssuranceDepotLe = new Date().toISOString();
     sauvegarder();
-    alert(`Document "${nomDepose}" déposé dans OneDrive (dossier Assurance de ${u.locataire}).`);
+    alert(`Document sauvé le ${dateHeureFr(u.docAssuranceDepotLe)}\n\n${depot.nom}\n\n${
+      depot.chemin || `dossier Assurance de ${u.locataire}`}`);
     ouvrirEdition(uniteId);
   } catch (e) {
     alert("Échec du dépôt : " + e.message);

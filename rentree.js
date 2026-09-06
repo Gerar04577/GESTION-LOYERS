@@ -1,4 +1,4 @@
-// rentree.js — v110 — 06/09/2026
+// rentree.js — v111 — 06/09/2026
 // Gestion Loyers — module RENTRÉE, entièrement séparé
 //
 // POURQUOI CE MODULE EXISTE
@@ -1797,124 +1797,228 @@ function ouvrirAideRentree() {
     </div>
 
     <div class="aide-rentree">
+
       <h3>À quoi sert cet écran</h3>
-      <p>Les studios sont loués à des étudiants. Dès février, on sait qui
-      part en juin et par qui il sera remplacé en septembre. Ces futurs
-      locataires n'existent dans aucun mois de l'application, qui raisonne
-      par mois calendaires : cet écran leur donne une place.</p>
+      <p>Les studios sont loués à des étudiants. Dès février, on sait qui part
+      en juin et par qui il sera remplacé en septembre. Ces futurs locataires
+      n'existent dans aucun mois de l'application, qui raisonne par mois
+      calendaires : cet écran leur donne une place en attendant.</p>
+      <p class="ex"><strong>Exemple.</strong> En mars, Jules Amouri annonce
+      qu'il quitte le studio 6 de Biche en juin. Olivia Megali le remplacera
+      au 1<sup>er</sup> septembre. On l'inscrit ici tout de suite ; le mois de
+      mars, lui, continue d'afficher Jules.</p>
 
       <h3>Quand le remplir</h3>
-      <p>De février à l'été. Le dossier porte l'année de la rentrée à
-      préparer — « Rentrée 2027 » —, et change au 1<sup>er</sup> janvier.</p>
+      <p>De février à l'été, au fur et à mesure. Le dossier porte l'année de la
+      rentrée à préparer — « Rentrée 2027 » — et change au
+      1<sup>er</sup> janvier.</p>
+      <p class="ex"><strong>Exemple.</strong> Le 3 février 2027, l'écran
+      s'ouvre sur « Rentrée 2027 ». Il gardera ce nom jusqu'au 31 décembre.
+      Le 1<sup>er</sup> janvier 2028, il deviendra « Rentrée 2028 » et repartira
+      vide.</p>
 
       <h3>Les seize colonnes</h3>
-      <p><strong>Deux sont lues dans le mois</strong> et ne se saisissent
-      pas : l'unité et son locataire actuel. Elles suivent le mois affiché.</p>
-      <p><strong>Quatorze se remplissent ici</strong> : le statut, le
-      locataire suivant, les acomptes, les quatre contrôles, et les montants
-      du nouveau bail.</p>
+      <p><strong>Deux sont lues dans le mois</strong> et ne se saisissent pas :
+      le nom de l'unité et son locataire actuel. Elles suivent le mois affiché
+      en haut de l'application.</p>
+      <p><strong>Quatorze se remplissent ici</strong> : le statut, le locataire
+      suivant, son courriel, les acomptes, la date de début du bail, les quatre
+      contrôles et les montants.</p>
+      <p class="ex"><strong>Exemple.</strong> Sur la ligne du studio 6, tu lis
+      « STUDIO 6 BICHE » et « Jules Amouri — lu dans le mois ». Tout le reste,
+      c'est toi qui le remplis.</p>
+
+      <h3>Le statut</h3>
+      <p><strong>Reste</strong> — le locataire ne bouge pas.
+      <strong>Départ</strong> — il s'en va et tu connais son remplaçant.
+      <strong>En attente</strong> — il s'en va mais tu ne sais pas encore par
+      qui.
+      <strong>Inoccupé</strong> — tu as décidé de ne pas relouer.</p>
+      <p class="ex"><strong>Exemple.</strong> En février, le studio 6 passe en
+      « en attente » : Jules a donné son préavis, personne n'est encore trouvé.
+      En avril, Olivia signe : tu passes en « départ » et tu saisis son nom.</p>
 
       <h3>Les quatre contrôles</h3>
-      <p>Bail, avenant, Samadhi, EDLE. Un V vert quand c'est fait, un point
-      rouge sinon. <strong>Avenant et Samadhi ne concernent que Biche, Nimy
-      et Petite Guirlande</strong> : ailleurs, un tiret gris indique que la
-      colonne est sans objet.</p>
+      <p>Bail, avenant, Samadhi, EDLE. Touche la case : elle passe du point
+      rouge au V vert.</p>
+      <p><strong>Avenant et Samadhi ne concernent que Biche, Nimy et Petite
+      Guirlande.</strong> Ailleurs, un tiret gris sur fond hachuré indique que
+      la colonne est sans objet — ce n'est pas une case oubliée.</p>
+      <p class="ex"><strong>Exemple.</strong> Sur un studio de Vannes, tu vois
+      « bail ● » et « EDLE ● » à cocher, mais « avenant — » et « Samadhi — »
+      en gris. Il n'y a rien à faire pour ces deux-là.</p>
+
+      <h3>Le courriel</h3>
+      <p>L'adresse du futur locataire. Sans elle, on ne peut lui envoyer ni le
+      document de remise des clés, ni le décompte de charges.</p>
+      <p>L'application vérifie la forme : il faut un arobase, un point après
+      lui, et pas d'espace. Une adresse douteuse s'affiche en rouge et
+      <strong>empêche le versement</strong> — mieux vaut la corriger que de
+      découvrir plus tard qu'un envoi n'est jamais arrivé.</p>
+      <p class="ex"><strong>Exemple.</strong> « olivia.megali@gmail.com »
+      passe. « olivia.megali » devient rouge : il manque tout ce qui suit
+      l'arobase.</p>
 
       <h3>Les acomptes</h3>
       <p>Un locataire verse parfois en deux ou trois fois. Le bouton
-      « + acompte » ajoute autant de lignes qu'il en vient, chacune avec sa
-      date. <strong>C'est le total qui devient la garantie encaissée.</strong></p>
-      <p>Un locataire qui déménage dans le parc ne verse pas d'acompte : sa
-      garantie le suit.</p>
+      « + acompte » ajoute une ligne, avec son montant et sa date. Le
+      <strong>total</strong> s'affiche à côté du titre.</p>
+      <p>C'est ce total qui deviendra la garantie encaissée au moment du
+      versement.</p>
+      <p class="ex"><strong>Exemple.</strong> Olivia verse 200 € le 5 avril,
+      puis 200 € le 12 juin. Tu ajoutes deux lignes. Le titre affiche
+      « Acomptes — total 400,00 € ».</p>
+
+      <h3>Le début du bail</h3>
+      <p>Une date à part, qui n'a rien à voir avec les acomptes : ceux-ci sont
+      versés au printemps, le bail commence en septembre. Le bouton
+      « 1<sup>er</sup> sept. » la remplit d'un geste.</p>
+      <p>La fin de bail se calcule toute seule : douze mois moins un jour.</p>
+      <p class="ex"><strong>Exemple.</strong> Tu touches « 1<sup>er</sup> sept. » :
+      le bail court du 1<sup>er</sup> septembre 2027 au 31 août 2028.</p>
 
       <h3>Les montants du bail</h3>
-      <p>Six montants, dont chacun a son périmètre — seuls ceux qui
-      s'appliquent à l'unité sont demandés :</p>
+      <p>Six montants, dont chacun a son périmètre — seuls ceux qui s'appliquent
+      à l'unité sont demandés :</p>
       <p><strong>Loyer</strong> partout, garage compris.<br>
       <strong>Charges</strong> — la provision — partout sauf le garage.<br>
       <strong>Poubelles</strong> à Biche, Nimy, Pourcelet et Petite Guirlande.<br>
       <strong>Wifi</strong> à Biche, Nimy et Petite Guirlande.<br>
       <strong>Assurance</strong> partout sauf Vannes.<br>
       <strong>Garantie</strong> partout sauf le garage.</p>
-      <p>Le garage n'a qu'un loyer : c'est un emplacement, pas un logement.</p>
-      <p><strong>Un champ vide ne touche à rien</strong> : la valeur venue du
-      mois précédent reste. Un champ rempli la remplace. C'est vrai pour un
-      locataire qui reste comme pour un nouveau.</p>
+      <p><strong>Un champ laissé vide ne touche à rien</strong> : la valeur du
+      mois précédent reste en place. Un champ rempli la remplace.</p>
+      <p class="ex"><strong>Exemple.</strong> Sur un studio de Vannes, tu ne
+      vois que trois champs : loyer, charges, garantie. Ni poubelles, ni wifi,
+      ni assurance — ils ne sont pas facturés là-bas. Le garage, lui, n'a qu'un
+      loyer.</p>
+      <p class="ex"><strong>Autre exemple.</strong> Le loyer passe de 380 à
+      395 € mais les charges ne bougent pas : tu saisis 395 dans « loyer » et tu
+      laisses « charges » vide. Les 90 € de charges resteront.</p>
 
       <h3>Un nom qui figure déjà ailleurs</h3>
-      <p>Si le nom du remplaçant est déjà celui d'un occupant du parc,
-      l'application le signale <strong>dès la saisie</strong> et demande de
-      quoi il s'agit :</p>
-      <p>Le nom est cherché dans <strong>deux sources</strong> : les
-      locataires en place, et les futurs locataires déjà inscrits dans une
-      autre ligne de rentrée. Ce second cas est presque toujours une erreur
-      de saisie.</p>
-      <p><strong>Déménagement</strong> — la même personne change de studio.
-      Sa garantie, son assurance payée et son adresse le suivent ; aucun
-      acompte ne lui est réclamé.<br>
-      <strong>Homonyme</strong> — deux personnes distinctes. Chacune sa
-      garantie, son acompte, son adresse.<br>
-      <strong>Erreur de saisie</strong> — le nom est effacé.</p>
-      <p>Tant que ce n'est pas tranché, <strong>l'unité ne peut pas être
-      versée</strong>. Un bandeau en tête rassemble tous les noms en
-      attente.</p>
-      <p>Ce que la personne apporte est relevé au moment de la saisie, quand
-      elle est encore chez elle. L'ordre dans lequel tu verses les deux
-      unités n'a donc aucune importance.</p>
-
-      <h3>Le début du bail</h3>
-      <p>Une date à part, distincte des acomptes — ceux-ci sont versés au
-      printemps, le bail commence en septembre. Le bouton « 1<sup>er</sup>
-      sept. » la remplit d'un geste. La fin de bail se calcule à douze mois
-      moins un jour.</p>
+      <p>Si le nom du remplaçant est déjà connu dans le parc, l'application le
+      signale <strong>dès la saisie</strong> et demande de quoi il s'agit. Elle
+      cherche dans deux endroits : les locataires en place, et les futurs
+      locataires déjà inscrits sur une autre ligne.</p>
+      <p><strong>Déménagement</strong> — la même personne change de studio. Sa
+      garantie, son assurance payée et son adresse le suivent ; aucun acompte
+      ne lui est réclamé.<br>
+      <strong>Homonyme</strong> — deux personnes différentes qui portent le même
+      nom. Chacune sa garantie, son acompte, son adresse.<br>
+      <strong>Erreur de saisie</strong> — le nom est effacé, à corriger.</p>
+      <p>Tant que tu n'as pas répondu, <strong>l'unité ne peut pas être
+      versée</strong>. Un bandeau en tête rassemble tous les noms en attente.</p>
+      <p class="ex"><strong>Exemple — déménagement.</strong> Marc Dupont occupe
+      le studio 7 de Nimy, où il a versé 400 € de garantie. Il veut le studio 1,
+      plus grand. Tu l'inscris comme remplaçant au studio 1 : l'application dit
+      « Ce nom figure déjà à STUDIO 7 NIMY ». Tu réponds « Déménagement » : ses
+      400 € et son adresse le suivront, et tu ne lui réclames pas d'acompte.</p>
+      <p class="ex"><strong>Exemple — erreur.</strong> Tu inscris Julie Martin
+      au studio 3, puis, distrait, au studio 8. L'application signale le
+      doublon. Tu réponds « Erreur de saisie » sur la seconde ligne, le nom
+      s'efface.</p>
+      <p>Ce que la personne apporte est relevé <strong>au moment où tu tapes son
+      nom</strong>, pendant qu'elle occupe encore son studio. L'ordre dans lequel
+      tu verses les deux unités n'a donc aucune importance.</p>
 
       <h3>Verser dans le mois</h3>
-      <p>Septembre est créé au mois d'août, par recopie d'août. On verse
-      ensuite unité par unité, <strong>au fil du remplissage</strong> : une
-      unité déjà versée peut l'être à nouveau quand un acompte arrive ou
-      qu'un montant est complété. Le bouton devient « Verser à nouveau ».</p>
-      <p>Verser deux fois ne compte jamais deux fois : la garantie encaissée
-      est recalculée à partir du total des acomptes, jamais additionnée.</p>
-      <p><strong>Mais toujours dans le même mois.</strong> Si tu as versé en
-      septembre et que tu te trouves en octobre, l'application refuse et te
-      dit où te placer : verser dans deux mois installerait le locataire
-      deux fois, et l'annulation deviendrait impossible.</p>
-      <p><strong>Au premier versement seulement</strong>, l'assurance payée
-      et les loyers versés par le sortant repartent à zéro — ils ne sont pas
-      les siens. Aux versements suivants ils sont conservés : ce sont
-      désormais ceux du nouveau locataire.</p>
-      <p>Les six champs de texte libre de l'unité repartent à vide eux
-      aussi : commentaire garantie, document et commentaire d'assurance,
-      ordre permanent, commentaires et notes internes. Ils parlaient du
-      locataire précédent.</p>
+      <p>Septembre est créé au mois d'août, par recopie d'août. Tu verses
+      ensuite <strong>unité par unité</strong>, au fur et à mesure que les
+      lignes se remplissent.</p>
+      <p>Le versement installe le nouveau locataire dans le mois : son nom, son
+      courriel, les montants du bail, sa garantie.</p>
+      <p class="ex"><strong>Exemple.</strong> En août, tu te places sur
+      « septembre 2027 » dans l'application, tu ouvres la rentrée, et tu verses
+      le studio 6. Olivia remplace Jules dans le mois de septembre.</p>
+
+      <h3>Verser une seconde fois — toujours dans le même mois</h3>
+      <p>Une unité déjà versée peut l'être à nouveau : le bouton devient
+      « Verser à nouveau ». C'est utile quand un acompte arrive après coup, ou
+      qu'un montant était encore vide.</p>
+      <p>Cela ne compte jamais deux fois : la garantie encaissée est
+      <strong>recalculée</strong> à partir du total des acomptes, jamais
+      additionnée.</p>
+      <p><strong>Mais il faut être sur le même mois que la première fois.</strong>
+      Si tu as versé dans septembre, tu dois être sur septembre pour recommencer.
+      L'application refuse et te dit où te placer.</p>
+      <p class="ex"><strong>Exemple.</strong> Tu as versé le studio 6 dans
+      septembre 2027 avec un acompte de 200 €. En juillet, Olivia verse 200 € de
+      plus. Tu ajoutes la ligne, tu te replaces sur septembre 2027, et tu verses
+      à nouveau : la garantie passe à 400 €, pas à 600.</p>
+      <p class="ex"><strong>Ce qui arriverait sinon.</strong> Si tu étais resté
+      sur octobre, Olivia aurait été installée dans septembre <em>et</em> dans
+      octobre — deux mois faux au lieu d'un —, et tu ne pourrais plus annuler
+      ni depuis l'un ni depuis l'autre. C'est pourquoi l'application refuse.</p>
+
+      <h3>Ce que le versement efface</h3>
+      <p>Au <strong>premier</strong> versement d'un nouveau locataire,
+      l'assurance payée et les loyers versés par le sortant repartent à zéro :
+      ils ne sont pas les siens. Les six champs de texte de l'unité aussi —
+      commentaire garantie, document et commentaire d'assurance, ordre
+      permanent, commentaires, notes internes.</p>
+      <p>Aux versements suivants, rien n'est effacé : ce qui a été écrit
+      concerne désormais le nouveau locataire.</p>
+      <p class="ex"><strong>Exemple.</strong> La note « bruyant, voisins se
+      plaignent » parlait de Jules. Quand Olivia arrive, elle disparaît. Et la
+      référence de la police d'assurance de Jules aussi — ce n'est pas la
+      sienne.</p>
       <p><strong>L'argent suit la personne, les textes suivent l'unité.</strong>
-      Un locataire qui déménage dans le parc garde sa garantie — c'est le même
-      argent —, mais l'unité où il arrive perd les notes de celui qui la
-      quittait : elles ne le concernent pas.</p>
+      Marc qui déménage garde sa garantie, mais l'unité où il arrive perd les
+      notes de celui qui la quittait.</p>
 
       <h3>Un locataire qui reste</h3>
-      <p>Son bail est renouvelé, son loyer peut être indexé. Saisis les
-      montants et touche <strong>« Appliquer les montants »</strong> : le
-      locataire ne change pas, seuls les montants sont remplacés.</p>
+      <p>Son bail est renouvelé, son loyer peut être indexé. Saisis les montants
+      et touche <strong>« Appliquer les montants »</strong> : le locataire ne
+      change pas, seuls les montants sont remplacés.</p>
+      <p class="ex"><strong>Exemple.</strong> Axel reste au studio 8 de Biche,
+      mais son loyer passe de 370 à 380 €. Tu laisses le statut sur « reste »,
+      tu saisis 380 dans « loyer », et tu touches « Appliquer les montants ».</p>
 
       <h3>Annuler</h3>
-      <p>Un versement s'annule depuis le mois où il a été fait, et rend
-      l'unité exactement dans l'état d'avant. Le bouton rouge en tête annule
-      tous les versements du mois d'un coup — utile pour les essais.</p>
+      <p>Un versement s'annule <strong>depuis le mois où il a été fait</strong>,
+      et rend l'unité exactement dans l'état d'avant : le locataire, les
+      montants, la garantie, les notes.</p>
+      <p>Le bouton rouge en tête annule tous les versements du mois d'un coup —
+      utile pour les essais.</p>
+      <p class="ex"><strong>Exemple.</strong> Tu t'aperçois qu'Olivia s'est
+      désistée. Tu te places sur septembre 2027, tu touches « annuler » sur la
+      ligne du studio 6 : Jules revient, avec ses montants et sa garantie de
+      1 150 €.</p>
 
       <h3>Ce qui manque</h3>
-      <p>Le bouton liste, locataire par locataire, ce qui reste à faire avant
-      la rentrée. Les unités qui restent et celles laissées volontairement
+      <p>Le bouton en haut liste, locataire par locataire, ce qui reste à faire
+      avant la rentrée. Les unités qui restent et celles laissées volontairement
       inoccupées n'y figurent pas.</p>
       <p><strong>Une unité versée y reste tant que ses documents ne sont pas
-      rentrés</strong> — elle porte alors la mention « déjà versée ». On
-      verse dès que le remplaçant et les montants sont connus ; le bail
-      signé, l'avenant et l'EDLE arrivent souvent après.</p>
+      rentrés</strong> — elle porte alors la mention « déjà versée ». On verse
+      dès que le remplaçant et les montants sont connus ; le bail signé,
+      l'avenant et l'EDLE arrivent souvent après.</p>
+      <p class="ex"><strong>Exemple.</strong> Le bouton affiche « Ce qui
+      manque — 12 locataires, 34 documents ». En touchant, tu vois
+      « Olivia Megali — STUDIO 6 BICHE : Samadhi, EDLE ». Le reste est fait.</p>
 
       <h3>Travailler à deux</h3>
-      <p>Un bandeau signale qu'une autre personne utilise l'application.
-      Évitez de travailler sur le même immeuble en même temps : le dernier
-      qui enregistre l'emporte.</p>
+      <p>Un bandeau signale qu'une autre personne utilise l'application au même
+      moment. <strong>Évitez de travailler sur le même immeuble en même
+      temps</strong> : le dernier qui enregistre l'emporte, et le travail de
+      l'autre serait perdu.</p>
+      <p class="ex"><strong>Exemple.</strong> Le bandeau dit « Julien utilise
+      aussi l'application ». Si tu comptais faire Nimy, appelle-le : demande-lui
+      sur quel immeuble il est, et prends-en un autre.</p>
+
+      <h3>Si quelque chose ne part pas</h3>
+      <p>Chaque versement écrit sur OneDrive. Si l'écriture échoue — connexion
+      perdue, ou quelqu'un d'autre a modifié le mois entre-temps — l'application
+      <strong>défait ce qu'elle venait de faire</strong> et affiche un message
+      rouge en haut de l'écran.</p>
+      <p>Ne recommence pas aussitôt : reviens à l'écran principal, regarde le
+      message de sauvegarde, et réessaie ensuite.</p>
+      <p class="ex"><strong>Exemple.</strong> « STUDIO 6 BICHE NON versée. La
+      sauvegarde n'est pas partie sur OneDrive — conflit avec une autre
+      personne, ou connexion perdue. » Rien n'a été écrit : l'unité est restée
+      comme avant.</p>
+
     </div>
   </div>`;
   const zone = document.getElementById('vue-rentree-conteneur');

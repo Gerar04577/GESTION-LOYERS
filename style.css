@@ -1,4 +1,4 @@
-/* style.css — v110 — 06/09/2026 */
+/* style.css — v111 — 06/09/2026 */
 :root {
   --ink: #5f5770;
   --ink-light: #756c8a;
@@ -879,3 +879,11 @@ input[id^="f-montantAssurance-"] {
   font-size: 12px; }
 .rentree-doublon-fait { margin: 8px 0 0; font-size: 12px; color: #12503d;
   background: #dfeedd; border-radius: 8px; padding: 8px 10px; }
+/* LES EXEMPLES DU MODE D EMPLOI.
+   Julien et Véronique n ont pas conçu l application : chaque règle est
+   suivie d un cas concret, visuellement distinct du texte de la règle. */
+.aide-rentree .ex { background: #f4f1ea; border-left: 3px solid #c9c4bb;
+  border-radius: 0 6px 6px 0; padding: 8px 11px; margin: 6px 0 10px;
+  font-size: 13px; color: #4a4a4a; }
+.aide-rentree .ex strong { color: #2c2c2c; }
+.aide-rentree h3 { margin-top: 22px; }

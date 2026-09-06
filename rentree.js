@@ -1,4 +1,4 @@
-// rentree.js — v123 — 06/09/2026
+// rentree.js — v130 — 06/09/2026
 // Gestion Loyers — module RENTRÉE, entièrement séparé
 //
 // POURQUOI CE MODULE EXISTE
@@ -1069,6 +1069,10 @@ function ligneHtmlRentree(immeubleId, unite) {
       onclick="ajouterAcompteRentree('${unite.id}')">+ acompte</button>`;
     })()}` : ''}
 
+    ${l.clesDepotLe ? `<p class="rentree-depot">📁 Document remis déposé le ${
+      dateHeureCourte(l.clesDepotLe)}<br>${echapperR(l.clesChemin || '')}${
+      l.clesFichier ? ' / ' + echapperR(l.clesFichier) : ''}</p>` : ''}
+
     ${!attendRemplacant && totalAcomptes(l) ? `<p class="rentree-alerte-champ">
       Un acompte de ${totalAcomptes(l).toFixed(2)} € reste inscrit sur cette ligne.
       Sous ce statut il ne sera porté nulle part : repasse en « départ » pour le
@@ -2097,11 +2101,10 @@ async function ouvrirVueManques() {
    et l'application n'a besoin d'aucune bibliothèque extérieure. Elle ne
    dépend aujourd'hui que de Microsoft, et je n'y ajoute pas de script tiers.
 
-   Il est téléchargé sur l'appareil — pour la pièce jointe d'Envoi
-   Décomptes — ET déposé dans OneDrive, parce qu'une pièce communiquée à un
-   locataire doit rester ce qu'elle était le jour de l'envoi. */
-
-const CLES_DOSSIER = 'GESTION-LOYERS/rentree/cles';
+   Il est affiché à l'écran, puis déposé dans OneDrive sous deux formes,
+   Word et PDF, dans le dossier EDLE du locataire — au même endroit que son
+   bail et son état des lieux. Une pièce communiquée à un locataire doit
+   rester ce qu'elle était le jour de l'envoi. */
 
 /* LES TROIS COMPTES BANCAIRES, selon le propriétaire de l'immeuble. */
 const COMPTES = {
@@ -2163,6 +2166,13 @@ function eur(n) {
     { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
 }
 
+function dateHeureCourte(iso) {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '';
+  return d.toLocaleDateString('fr-BE', { day: '2-digit', month: '2-digit', year: 'numeric' })
+    + ' à ' + d.toLocaleTimeString('fr-BE', { hour: '2-digit', minute: '2-digit' });
+}
+
 function dateFr(iso) {
   if (!iso) return '';
   const d = new Date(iso);
@@ -2209,7 +2219,11 @@ function nomFichierCles(immeubleNom, unite, nom) {
   });
   u = u.replace(/^-+|-+$/g, '').replace(/-+/g, '-') || 'UNITE';
 
-  return `${im}-${u}-${propre(nom)}.doc`;
+  /* L'EXTENSION DIT CE QUE LE FICHIER EST.
+     « .doc » sur du HTML : Word l'ouvrait, l'iPhone non, et OneDrive ne
+     savait pas l'afficher. Le nom de base porte désormais l'extension du
+     vrai fichier Word ; le PDF prend la même racine. */
+  return `${im}-${u}-${propre(nom)}.docx`;
 }
 
 /* LE DOCUMENT LUI-MÊME.
@@ -2219,7 +2233,407 @@ function nomFichierCles(immeubleNom, unite, nom) {
 
    AUCUNE EXPLICATION DU CALCUL DES CHARGES : le détail figure dans
    l'avenant au bail, et le répéter ici l'exposerait à diverger. */
-function documentCles(immeubleId, immeubleNom, unite, l) {
+
+/* ---- LE DOSSIER DU LOCATAIRE ------------------------------------------
+
+   Le document ne va plus dans un dossier à part : il rejoint la pièce à
+   laquelle il se rapporte, dans l'arborescence des immeubles —
+
+     Immobilier 2025-2026 / <immeuble> / <studio> / <locataire> / EDLE
+
+   C'est le même chemin que les baux et les états des lieux, et le même
+   mécanisme que les documents de garantie déposés depuis la fiche.
+
+   Une différence tient : le locataire ARRIVE. Son dossier n'existe pas
+   encore, et obtenirRefLocataire ne sait que chercher — elle lève une
+   erreur quand elle ne trouve rien. On crée donc ce qui manque, sous le
+   nom exactement tel qu'il a été saisi dans la rentrée, débarrassé des
+   caractères que OneDrive refuse. */
+function nomDossierPropre(nom) {
+  return String(nom || '').replace(/[\\/:*?"<>|]/g, ' ')
+    .replace(/\s+/g, ' ').trim();
+}
+
+async function dossierEnfant(refParent, nom) {
+  const enfants = await enfantsDeRef(refParent);
+  const existe = enfants.find(e => (e.folder || e.remoteItem) &&
+    normaliserNom(e.name) === normaliserNom(nom));
+  if (existe) return { ref: refDe(existe, refParent.driveId), cree: false };
+
+  /* UN SEUL MOT COMMUN NE FAIT PAS LE MÊME LOCATAIRE.
+
+     La recherche d'un dossier existant se fait ailleurs sur un mot commun,
+     ce qui convient pour RETROUVER quelqu'un déjà en place. Mais pour
+     RANGER la pièce d'un arrivant, ce critère est faux : « MARTIN Olivia »
+     et « MARTIN Pierre » partagent MARTIN, et le document de la nouvelle
+     serait déposé dans le dossier du sortant — sans que rien ne le
+     signale. Constaté le 06/09/2026.
+
+     On exige donc que TOUS les mots significatifs du nom se retrouvent
+     dans celui du dossier. À défaut, on en crée un : un dossier de trop se
+     voit et se corrige, une pièce classée chez un autre, non. */
+  const mots = normaliserNom(nom).split(' ').filter(m => m.length >= 3);
+  const proche = mots.length ? enfants.find(e => (e.folder || e.remoteItem) &&
+    mots.every(m => normaliserNom(e.name).includes(m))) : null;
+  if (proche) return { ref: refDe(proche, refParent.driveId), cree: false };
+
+  const url = refParent.driveId
+    ? `/drives/${refParent.driveId}/items/${refParent.id}/children`
+    : `/me/drive/items/${refParent.id}/children`;
+  const res = await appelGraph(url, { method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: nomDossierPropre(nom), folder: {},
+      '@microsoft.graph.conflictBehavior': 'rename' }) });
+  if (!res || !res.ok) {
+    throw new Error(`création du dossier « ${nom} » : ` +
+      (typeof detailErreur === 'function' ? await detailErreur(res) : 'refus de Microsoft'));
+  }
+  const item = await res.json();
+  return { ref: refDe(item, refParent.driveId), cree: true };
+}
+
+/* ON REGARDE OÙ L'ON VA AVANT D'Y ÉCRIRE.
+
+   Quatre doutes peuvent peser sur la destination, et aucun ne se voyait :
+
+     — le dossier du locataire n'existe pas et va être CRÉÉ. C'était
+       signalé, mais APRÈS coup : si le dossier existait sous un nom que
+       l'application n'a pas reconnu, on se retrouvait avec deux dossiers
+       pour la même personne, et on l'apprenait une fois la pièce écrite ;
+     — un dossier est retenu sur une correspondance APPROCHANTE : « Olivia
+       MARTIN » retrouve « MARTIN Olivia », ce qui est voulu, mais rien ne
+       disait que le nom trouvé n'était pas celui qu'on avait tapé ;
+     — PLUSIEURS dossiers pourraient convenir : le premier gagnait, en
+       silence ;
+     — le dossier de l'UNITÉ lui-même est ambigu, « RDC » pouvant désigner
+       le résidentiel ou le commercial.
+
+   Cette fonction ne crée rien : elle rend le chemin envisagé et la liste
+   des doutes. La décision revient à Gérard. */
+async function preparerDossierEdle(immeubleId, immeubleNom, unite, l) {
+  const refImmeuble = await obtenirRefImmeuble(immeubleId);
+  const enfantsImm = await enfantsDeRef(refImmeuble);
+  const trouveUnite = await trouverRefUnite(enfantsImm, refImmeuble,
+    unite.designation, unite.locataire);
+  if (!trouveUnite) throw new Error(`dossier de l'unité « ${unite.designation} » introuvable`);
+  const nomUnite = (trouveUnite.item && trouveUnite.item.name) || unite.designation;
+
+  /* LE CHEMIN MONTRÉ DOIT ÊTRE CELUI DE ONEDRIVE, PAS CELUI DE L'APPLICATION.
+
+     Les dossiers ne portent pas les noms de l'application : « Petite
+     Guirlande » s'appelle PTG, « La Fermette » s'appelle Pourcelet
+     Fermette, « HAVRE » s'écrit Havré. La confirmation annonçait donc une
+     destination fausse pour trois immeubles sur sept — et c'est
+     précisément ce qu'elle est censée montrer. Constaté le 06/09/2026. */
+  const nomImmeubleOneDrive =
+    (typeof DOSSIER_ONEDRIVE_PAR_IMMEUBLE === 'object'
+      && DOSSIER_ONEDRIVE_PAR_IMMEUBLE[immeubleId]) || immeubleNom;
+  const racine = (typeof DOSSIER_RACINE_PARTAGE === 'string')
+    ? DOSSIER_RACINE_PARTAGE : 'Immobilier';
+
+  /* CES DEUX NOMS-LÀ NE SONT PAS UN DOUTE : CE SONT DES ÉQUIVALENCES CONNUES.
+
+     L'application appelle « Petite Guirlande » ce que OneDrive appelle PTG,
+     et « La Fermette » ce qu'il appelle Pourcelet Fermette. La table de
+     correspondance des sept immeubles existe depuis toujours dans le module
+     de lecture OneDrive : c'est elle qui sert à trouver les dossiers.
+
+     Je les signalais comme un doute — un avertissement se serait affiché à
+     chaque document de PTG, de la Fermette et de Havré, sur un écart
+     parfaitement normal. Un avertissement qui crie au loup à chaque fois
+     n'est plus lu quand il a raison. Corrigé le 06/09/2026 : on le dit,
+     sans alerter. */
+  const doutes = [], equivalences = [];
+  if (normaliserNom(nomImmeubleOneDrive) !== normaliserNom(immeubleNom)) {
+    equivalences.push(`« ${immeubleNom} » se range dans le dossier « ${
+      nomImmeubleOneDrive} »`);
+  }
+  if (normaliserNom(nomUnite) !== normaliserNom(unite.designation)) {
+    doutes.push(`le dossier de l'unité s'appelle « ${nomUnite} » et non « ${unite.designation} »`);
+  }
+
+  const enfantsUnite = await enfantsDeRef(trouveUnite.ref);
+  const dossiers = enfantsUnite.filter(e => e.folder || e.remoteItem);
+  const cible = normaliserNom(l.locataireSuivant);
+  const mots = cible.split(' ').filter(m => m.length >= 3);
+
+  const exact = dossiers.find(d => normaliserNom(d.name) === cible);
+  const proches = mots.length
+    ? dossiers.filter(d => mots.every(m => normaliserNom(d.name).includes(m)))
+    : [];
+
+  let refLoc = null, nomLoc = nomDossierPropre(l.locataireSuivant), creerLoc = false;
+  if (exact) {
+    refLoc = refDe(exact, trouveUnite.ref.driveId);
+    nomLoc = exact.name;
+  } else if (proches.length === 1) {
+    refLoc = refDe(proches[0], trouveUnite.ref.driveId);
+    nomLoc = proches[0].name;
+    doutes.push(`le dossier retenu s'appelle « ${nomLoc} », et non « ${l.locataireSuivant} »`);
+  } else if (proches.length > 1) {
+    refLoc = refDe(proches[0], trouveUnite.ref.driveId);
+    nomLoc = proches[0].name;
+    doutes.push(`${proches.length} dossiers pourraient convenir (${
+      proches.map(p => p.name).join(', ')}) — « ${nomLoc} » a été retenu`);
+  } else {
+    creerLoc = true;
+    doutes.push(`aucun dossier pour ce locataire : « ${nomLoc} » sera CRÉÉ`);
+  }
+
+  let refEdle = null, creerEdle = true;
+  if (refLoc) {
+    const sous = await enfantsDeRef(refLoc);
+    const e = sous.find(x => (x.folder || x.remoteItem) && normaliserNom(x.name) === 'EDLE');
+    if (e) { refEdle = refDe(e, refLoc.driveId); creerEdle = false; }
+  }
+  if (creerEdle) doutes.push('le sous-dossier EDLE sera créé');
+
+  return { refUnite: trouveUnite.ref, nomUnite, refLoc, nomLoc, creerLoc,
+           refEdle, creerEdle, doutes, equivalences,
+           chemin: `${racine} / ${nomImmeubleOneDrive} / ${nomUnite} / ${nomLoc} / EDLE` };
+}
+
+/* Crée ce qui manque, une fois la destination confirmée. */
+async function creerDossierEdle(plan) {
+  let refLoc = plan.refLoc;
+  if (!refLoc) refLoc = (await dossierEnfant(plan.refUnite, plan.nomLoc)).ref;
+  if (plan.refEdle) return plan.refEdle;
+  return (await dossierEnfant(refLoc, 'EDLE')).ref;
+}
+
+/* ---- LE DOCUMENT EN VRAI FICHIER WORD ---------------------------------
+
+   Le document était déposé en « .doc » : du HTML sous une extension que
+   Word accepte sur PC. L'iPhone n'en fait rien, et OneDrive ne sait pas
+   l'afficher — le fichier se sauvait, et il n'y avait rien à voir.
+   Constaté par Gérard le 06/09/2026.
+
+   Un vrai .docx règle les deux, et il en règle un troisième : Microsoft
+   convertit lui-même un .docx en PDF, gratuitement, par l'interface
+   stable de Graph. Le HTML, lui, n'y figure pas — seulement en version
+   beta, avec des défauts connus. Le détour par Word est donc le chemin le
+   plus court vers le PDF.
+
+   La recette est celle de Charges & Compteurs, éprouvée depuis des mois :
+   les sept pièces d'un paquet Office, compressées par JSZip. */
+
+const DOCX_TYPES = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+  <Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>
+  <Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>
+</Types>`;
+
+const DOCX_RELS = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/>
+</Relationships>`;
+
+const DOCX_DOC_RELS = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
+</Relationships>`;
+
+const DOCX_STYLES = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:docDefaults><w:rPrDefault><w:rPr>
+    <w:rFonts w:ascii="Calibri" w:hAnsi="Calibri" w:cs="Calibri"/>
+    <w:sz w:val="22"/><w:szCs w:val="22"/><w:lang w:val="fr-BE"/>
+  </w:rPr></w:rPrDefault></w:docDefaults>
+  <w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/><w:qFormat/></w:style>
+</w:styles>`;
+
+const DOCX_CORE = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/">
+  <dc:title>Montant à verser avant la remise des clés</dc:title>
+  <dc:creator>Gestion Loyers</dc:creator>
+</cp:coreProperties>`;
+
+/* Word veut du XML valide : cinq caractères doivent être protégés, faute de
+   quoi un nom contenant « & » ou « < » rend le fichier illisible sans le
+   moindre message. */
+function xmlEch(t) {
+  return String(t == null ? '' : t)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&apos;');
+}
+
+/* Les tailles de Word sont en DEMI-points : 22 vaut 11 points. */
+function dxP(texte, o = {}) {
+  const rPr = `${o.bold ? '<w:b/>' : ''}${o.italic ? '<w:i/>' : ''}` +
+    `${o.color ? `<w:color w:val="${o.color}"/>` : ''}` +
+    `${o.size ? `<w:sz w:val="${o.size}"/><w:szCs w:val="${o.size}"/>` : ''}` +
+    `${o.caps ? '<w:caps/>' : ''}`;
+  const pPr = `${o.align ? `<w:jc w:val="${o.align}"/>` : ''}` +
+    `<w:spacing w:before="${o.before || 0}" w:after="${o.after == null ? 60 : o.after}"/>`;
+  return `<w:p><w:pPr>${pPr}</w:pPr><w:r>${rPr ? `<w:rPr>${rPr}</w:rPr>` : ''}` +
+    `<w:t xml:space="preserve">${xmlEch(texte)}</w:t></w:r></w:p>`;
+}
+
+function dxCell(paras, o = {}) {
+  const bords = o.hautLigne
+    ? `<w:tcBorders><w:top w:val="single" w:sz="4" w:color="C9C4BB"/></w:tcBorders>` : '';
+  return `<w:tc><w:tcPr><w:tcW w:w="${o.w || 0}" w:type="dxa"/>` +
+    `${o.bg ? `<w:shd w:val="clear" w:color="auto" w:fill="${o.bg}"/>` : ''}` +
+    `${bords}${o.marges ? '<w:tcMar><w:top w:w="120" w:type="dxa"/><w:bottom w:w="120" w:type="dxa"/>' +
+      '<w:left w:w="160" w:type="dxa"/><w:right w:w="160" w:type="dxa"/></w:tcMar>' : ''}` +
+    `</w:tcPr>${paras}</w:tc>`;
+}
+
+/* Aucune bordure par défaut : ce document est une lettre, pas un tableau
+   comptable. Seules les lignes de total en portent une, en haut. */
+function dxTable(lignes, cols) {
+  const grid = cols.map(w => `<w:gridCol w:w="${w}"/>`).join('');
+  return `<w:tbl><w:tblPr><w:tblW w:w="${cols.reduce((a, b) => a + b, 0)}" w:type="dxa"/>` +
+    `<w:tblBorders><w:top w:val="none"/><w:left w:val="none"/><w:bottom w:val="none"/>` +
+    `<w:right w:val="none"/><w:insideH w:val="none"/><w:insideV w:val="none"/></w:tblBorders>` +
+    `<w:tblCellMar><w:left w:w="0" w:type="dxa"/><w:right w:w="0" w:type="dxa"/></w:tblCellMar>` +
+    `</w:tblPr><w:tblGrid>${grid}</w:tblGrid>${lignes.join('')}</w:tbl>`;
+}
+
+const LARG_LIB = 6900, LARG_MT = 2738;
+
+function documentClesDocxXml(immeubleId, immeubleNom, unite, l) {
+  const c = chiffresCles(immeubleId, immeubleNom, unite, l);
+  const GRIS = '7A7A7A', BLEU = '1B3A52', VERT = '1F7A4D';
+
+  /* une ligne « libellé … montant » */
+  const lig = (lib, montant, o = {}) => montant == null ? '' :
+    `<w:tr>${
+      dxCell(dxP(lib, { size: 20, bold: o.bold, color: o.color, after: 40 }),
+        { w: LARG_LIB, hautLigne: o.trait })}${
+      dxCell(dxP(eur(montant), { size: 20, bold: o.bold, color: o.color, align: 'right', after: 40 }),
+        { w: LARG_MT, hautLigne: o.trait })}</w:tr>`;
+
+  const tableauLoyer = dxTable([
+    lig('Loyer', c.loyer),
+    lig('Provision de charges', c.charges),
+    lig('Poubelles', c.poubelles),
+    lig('Wifi', c.wifi),
+    c.detaille ? lig('Loyer charges comprises', c.loyerCC, { bold: true, trait: true }) : '',
+  ].filter(Boolean), [LARG_LIB, LARG_MT]);
+
+  const deductions = (l.acomptes || []).filter(a => a.montant).map(a =>
+    lig('Acompte versé' + (a.date ? ' le ' + dateFr(a.date) : ''), -a.montant, { color: VERT }))
+    .join('');
+
+  const tableauDu = dxTable([
+    lig('Garantie locative', c.garantie),
+    lig(c.detaille ? 'Premier mois de loyer, charges comprises' : 'Premier mois de loyer', c.loyerCC),
+    lig('Assurance', c.assurance),
+    lig('Total', c.total, { trait: true }),
+    deductions,
+    c.dejaGarantie ? lig('Garantie déjà versée' +
+      (c.apporte && c.apporte.venantDe ? ' pour ' + c.apporte.venantDe : ''),
+      -c.dejaGarantie, { color: VERT }) : '',
+    c.dejaAssurance ? lig('Assurance déjà payée', -c.dejaAssurance, { color: VERT }) : '',
+  ].filter(Boolean), [LARG_LIB, LARG_MT]);
+
+  const titreReste = c.reste > 0 ? 'Reste à payer'
+    : c.reste < 0 ? 'Trop-perçu, à vous rembourser' : 'Rien à verser — tout est réglé';
+  const fondReste = c.reste < 0 ? 'FBF3E0' : 'E4EFDC';
+  const encreReste = c.reste < 0 ? '6B4E11' : '2E4522';
+
+  const blocReste = dxTable([`<w:tr>${
+    dxCell(dxP(titreReste, { size: 24, bold: true, color: encreReste, after: 0 }),
+      { w: LARG_LIB, bg: fondReste, marges: true })}${
+    dxCell(dxP(eur(Math.abs(c.reste)), { size: 32, bold: true, color: encreReste, align: 'right', after: 0 }),
+      { w: LARG_MT, bg: fondReste, marges: true })}</w:tr>`], [LARG_LIB, LARG_MT]);
+
+  const blocBandeau = dxTable([`<w:tr>${
+    dxCell(dxP(unite.designation, { size: 26, bold: true, color: BLEU, after: 40 }) +
+           dxP(`${l.locataireSuivant} · bail du ${dateFr(l.debutBail)}` +
+               (c.finBail ? ' au ' + c.finBail : ''), { size: 20, color: '2F5A78', after: 0 }),
+      { w: LARG_LIB + LARG_MT, bg: 'DCE9F5', marges: true })}</w:tr>`], [LARG_LIB + LARG_MT]);
+
+  const blocPaiement = dxTable([`<w:tr>${
+    dxCell(
+      dxP('Comment payer', { size: 20, bold: true, after: 60 }) +
+      dxP(`Par virement sur le compte ${c.compte.iban} au nom de ${c.compte.titulaire}, ` +
+          `avec la communication « ${c.comm} ».`, { size: 20, after: 80 }) +
+      dxP((c.reste > 0
+            ? 'La totalité doit être réglée avant la remise des clés. '
+            : "Il n'y a rien à verser avant la remise des clés. ") +
+          "Celles-ci vous seront remises contre signature de l'état des lieux d'entrée.",
+        { size: 20, after: 0 }),
+      { w: LARG_LIB + LARG_MT, bg: 'F4F1EA', marges: true })}</w:tr>`], [LARG_LIB + LARG_MT]);
+
+  return [
+    dxP(`${c.compte.titulaire} — Gestion locative`, { size: 16, color: GRIS, caps: true, after: 40 }),
+    dxP('Montant à verser avant la remise des clés', { size: 32, bold: true, color: BLEU, after: 200 }),
+    blocBandeau,
+    dxP('', { after: 160 }),
+    dxP(c.detaille ? 'VOTRE LOYER MENSUEL' : 'VOTRE LOYER', { size: 16, color: GRIS, after: 60 }),
+    tableauLoyer,
+    dxP('', { after: 160 }),
+    dxP('À VERSER AVANT LA REMISE DES CLÉS', { size: 16, color: GRIS, after: 60 }),
+    tableauDu,
+    dxP('', { after: 140 }),
+    blocReste,
+    dxP('', { after: 140 }),
+    c.demenage ? dxP('Vous changez de logement au sein du même parc : la garantie et ' +
+      "l'assurance déjà versées vous suivent et sont déduites ci-dessus.",
+      { size: 20, color: '4A4A4A', after: 160 }) : '',
+    blocPaiement,
+    dxP('', { after: 120 }),
+    dxP("Le détail du calcul des charges figure dans l'avenant à votre bail. " +
+        `Document établi le ${dateFr(new Date().toISOString().slice(0, 10))}.`,
+      { size: 16, italic: true, color: GRIS, after: 0 }),
+  ].filter(Boolean).join('');
+}
+
+async function construireDocxCles(immeubleId, immeubleNom, unite, l) {
+  /* JSZip est déposé DANS le dépôt, pas chargé depuis un serveur extérieur :
+     le jour où celui-ci ne répond pas, le bouton doit continuer de marcher.
+     S'il manque quand même, on le dit — on ne produit pas un fichier vide. */
+  if (typeof JSZip !== 'function') {
+    throw new Error("le composant de compression n'est pas chargé (jszip.min.js manquant)");
+  }
+  const corps = documentClesDocxXml(immeubleId, immeubleNom, unite, l);
+  const documentXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${corps}
+<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1134" w:right="1134" w:bottom="1134" w:left="1134"/></w:sectPr>
+</w:body></w:document>`;
+
+  const zip = new JSZip();
+  zip.file('[Content_Types].xml', DOCX_TYPES);
+  zip.folder('_rels').file('.rels', DOCX_RELS);
+  zip.folder('word').file('document.xml', documentXml);
+  zip.folder('word').file('styles.xml', DOCX_STYLES);
+  zip.folder('word/_rels').file('document.xml.rels', DOCX_DOC_RELS);
+  zip.folder('docProps').file('core.xml', DOCX_CORE);
+  return zip.generateAsync({ type: 'blob',
+    mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
+}
+
+/* ---- LE PDF, FABRIQUÉ PAR ONEDRIVE ------------------------------------
+
+   Microsoft convertit lui-même un .docx en PDF : une requête sur le fichier
+   déjà déposé, avec format=pdf. Gratuit, sans service tiers, sans scénario.
+   Le HTML n'est pas accepté par l'interface stable — c'est la raison pour
+   laquelle on passe par Word. */
+async function pdfDepuisOneDrive(item) {
+  const url = item.parentReference && item.parentReference.driveId
+    ? `/drives/${item.parentReference.driveId}/items/${item.id}/content?format=pdf`
+    : `/me/drive/items/${item.id}/content?format=pdf`;
+  const res = await appelGraph(url, { method: 'GET' });
+  if (!res || !res.ok) {
+    throw new Error(res && typeof detailErreur === 'function'
+      ? await detailErreur(res) : 'conversion refusée');
+  }
+  return await res.blob();
+}
+
+/* LES CHIFFRES DU DOCUMENT, CALCULÉS UNE SEULE FOIS.
+
+   Le document existe désormais sous deux formes : la page affichée à
+   l'écran et le fichier Word déposé dans OneDrive. Deux calculs séparés
+   auraient fini par se contredire — c'est la faute que j'ai trouvée trois
+   fois dans ce module. Les deux formes lisent donc les mêmes chiffres. */
+function chiffresCles(immeubleId, immeubleNom, unite, l) {
   const mts = montantsApplicables(immeubleId, unite.designation);
   const val = (cle) => {
     const m = mts.find(x => x.cle === cle);
@@ -2233,52 +2647,30 @@ function documentCles(immeubleId, immeubleNom, unite, l) {
   const loyerCC = (loyer || 0) + (charges || 0) + (poubelles || 0) + (wifi || 0);
   const total = (garantie || 0) + loyerCC + (assurance || 0);
 
-  /* CE QUI A DÉJÀ ÉTÉ VERSÉ.
-
-     Les acomptes, bien sûr. Mais aussi, POUR UN DÉMÉNAGEMENT INTERNE, la
-     garantie et l'assurance que la personne a payées dans son ancien studio
-     et qui la suivent.
-
-     Sans cette déduction, on réclamait à Marc 1 475 € en incluant une
-     garantie de 840 € — alors qu'il en avait déjà versé 400 qui lui sont
-     transférées. On lui faisait payer deux fois. Constaté en simulation le
-     06/09/2026. */
+  /* CE QUI A DÉJÀ ÉTÉ VERSÉ : les acomptes, et pour un déménagement interne
+     la garantie et l'assurance payées dans l'ancien studio, qui suivent la
+     personne. Sans cette déduction on réclamait deux fois la garantie. */
   const demenage = estUnDemenagement(l, unite.id) && l.statut !== 'reste';
   const apporte = demenage
     ? (l.apporte || (l.doublon && l.doublon.releve) || null)
     : null;
-
   const dejaGarantie = apporte && apporte.garantieEncaissee || 0;
   const dejaAssurance = apporte && apporte.assuranceEncaissee || 0;
   const verse = totalAcomptes(l) + dejaGarantie + dejaAssurance;
 
-  /* UN RESTE NÉGATIF SE DIT AUTREMENT.
-
-     Si les acomptes dépassent le dû — ou si la garantie transférée d'un
-     déménagement couvre plus que le total — « Reste à payer −270,00 € »
-     n'a pas de sens. On annonce alors un trop-perçu, à rembourser.
-
-     Ce commentaire était écrit en commentaire HTML DANS le document : il
-     partait chez le locataire avec la pièce. Ramené dans le code le
-     06/09/2026. */
+  /* UN RESTE NÉGATIF SE DIT AUTREMENT : si les acomptes dépassent le dû, ou
+     si la garantie transférée couvre plus que le total, « Reste à payer
+     −270,00 € » n'a pas de sens. On annonce un trop-perçu. */
   const reste = total - verse;
 
   const compte = compteDe(immeubleId);
-  /* LA COMMUNICATION DOIT DÉSIGNER L'UNITÉ.
-
-     Elle ne gardait que les chiffres de la désignation. « RDC NIMY »,
-     « APPART RDC », « GARAGE » n'en ont pas : la communication devenait
-     « NIMY  — MARC », double espace compris, sans dire quelle unité.
-     Constaté le 06/09/2026. À défaut de chiffre, on garde la désignation,
-     débarrassée du nom de l'immeuble qu'elle répète. */
+  /* LA COMMUNICATION DOIT DÉSIGNER L'UNITÉ. Elle ne gardait que les
+     chiffres : « RDC NIMY », « GARAGE » n'en ont pas, et la communication
+     devenait « NIMY  — MARC », sans dire quelle unité. */
   const numero = (unite.designation.match(/\d+/) || [''])[0]
     || uniteSansImmeuble(immeubleNom, unite.designation);
   const comm = `${immeubleNom} ${numero} — ${l.locataireSuivant}`
     .replace(/\s+/g, ' ').trim().toUpperCase();
-
-  const ligne = (lib, montant, gras) => montant == null ? '' :
-    `<tr><td style="padding:4px 0;${gras ? 'font-weight:bold' : ''}">${lib}</td>
-     <td align="right" style="padding:4px 0;${gras ? 'font-weight:bold' : ''}">${eur(montant)}</td></tr>`;
 
   const finBail = (() => {
     const d = new Date(l.debutBail);
@@ -2286,6 +2678,23 @@ function documentCles(immeubleId, immeubleNom, unite, l) {
     d.setFullYear(d.getFullYear() + 1); d.setDate(d.getDate() - 1);
     return dateFr(d.toISOString().slice(0, 10));
   })();
+
+  const detaille = charges != null || poubelles != null || wifi != null;
+
+  return { loyer, charges, poubelles, wifi, assurance, garantie, loyerCC,
+           total, demenage, apporte, dejaGarantie, dejaAssurance, verse,
+           reste, compte, comm, finBail, detaille };
+}
+
+function documentCles(immeubleId, immeubleNom, unite, l) {
+  const c = chiffresCles(immeubleId, immeubleNom, unite, l);
+  const { loyer, charges, poubelles, wifi, assurance, garantie, loyerCC,
+          total, demenage, apporte, dejaGarantie, dejaAssurance,
+          reste, compte, comm, finBail } = c;
+
+  const ligne = (lib, montant, gras) => montant == null ? '' :
+    `<tr><td style="padding:4px 0;${gras ? 'font-weight:bold' : ''}">${lib}</td>
+     <td align="right" style="padding:4px 0;${gras ? 'font-weight:bold' : ''}">${eur(montant)}</td></tr>`;
 
   return `<html xmlns:o="urn:schemas-microsoft-com:office:office"
     xmlns:w="urn:schemas-microsoft-com:office:word"><head>
@@ -2400,63 +2809,174 @@ async function documentClesRentree(uniteId) {
   const contenu = documentCles(t.immeubleId, t.immeubleNom, t.unite, l);
   const nom = nomFichierCles(t.immeubleNom, t.unite, l.locataireSuivant);
 
-  /* LES DEUX COPIES DOIVENT ÊTRE LE MÊME FICHIER.
+  /* Word et PDF portent la même racine : on les retrouve côte à côte dans
+     le dossier, et on sait au premier coup d'œil qu'il s'agit de la même
+     pièce sous deux formes. */
+  const nomDocx = nom.replace(/\.[^.]+$/, '') + '.docx';
+  const nomPdf  = nom.replace(/\.[^.]+$/, '') + '.pdf';
 
-     Le fichier téléchargé portait la marque d'ordre des octets, celui
-     déposé dans OneDrive non : Word pouvait afficher les accents autrement
-     dans la pièce archivée que dans celle envoyée. Une pièce communiquée à
-     un locataire doit rester ce qu'elle était. Corrigé le 06/09/2026. */
-  const fichier = '\ufeff' + contenu;
+  /* LA DESTINATION EST MONTRÉE AVANT D'Y ÉCRIRE.
 
-  /* 1. Sur l'appareil, pour la pièce jointe. */
+     Immobilier 2025-2026 / <immeuble> / <studio> / <locataire> / EDLE —
+     le même chemin que le bail et l'état des lieux.
+
+     Elle repose sur des rapprochements de noms qui peuvent se tromper, et
+     une pièce classée chez un autre locataire ne se voit pas. On montre
+     donc le chemin et les doutes, et on attend. */
+  let plan;
   try {
-    const blob = new Blob([fichier], { type: 'application/msword' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = nom;
-    /* L'ANCRE EST POSÉE DANS LA PAGE, ET L'ADRESSE LIBÉRÉE APRÈS COUP.
+    plan = await preparerDossierEdle(t.immeubleId, t.immeubleNom, t.unite, l);
+  } catch (e) {
+    return dessinerVueRentree(`${nomDocx} : NON enregistré dans OneDrive — ` +
+      String((e && e.message) || e) + `.`);
+  }
 
-       Elle était révoquée dans la foulée du clic, sur une balise jamais
-       insérée : le téléchargement pouvait être invalidé avant d'avoir
-       commencé. */
-    document.body.appendChild(a);
-    a.click();
-    setTimeout(() => {
-      URL.revokeObjectURL(url);
-      if (a.parentNode) a.parentNode.removeChild(a);
-    }, 2000);
-  } catch (e) { /* le dépôt OneDrive reste la voie sûre */ }
+  const question = `Enregistrer le document dans :\n\n${plan.chemin}\n\n` +
+    (plan.equivalences.length
+      ? `${plan.equivalences.join('\n')}\n\n` : '') +
+    (plan.doutes.length ? `⚠️ À vérifier :\n— ${plan.doutes.join('\n— ')}\n\n` : '') +
+    `Deux fichiers seront déposés : ${nomDocx} et ${nomPdf}.`;
+  if (!confirm(question)) {
+    return dessinerVueRentree(
+      `${t.unite.designation} : rien n'a été enregistré. Corrige le dossier ` +
+      `dans OneDrive si besoin, puis recommence.`);
+  }
 
-  /* 2. Dans OneDrive, pour le retrouver des mois plus tard.
-
-     ecrireFichierDansDossier REND UNE RÉPONSE, elle ne lève pas d'erreur :
-     un refus de Microsoft — droits, quota, jeton expiré — passait sous le
-     try/catch sans rien dire, et le message « Document enregistré »
-     s'affichait pour un fichier qui n'existait pas. Même famille que
-     l'échec silencieux de sauvegarde. Corrigé le 06/09/2026.
-
-     On regarde donc la réponse. */
-  const chemin = `${CLES_DOSSIER}-${donneesRentree.annee}`;
+  let ref, chemin = plan.chemin, dossierCree = plan.creerLoc;
   try {
-    const ref = await resoudreRefParChemin(chemin, true);
-    if (!ref) throw new Error('dossier introuvable');
-    const res = await ecrireFichierDansDossier(ref, nom, fichier,
-      { headers: { 'Content-Type': 'application/msword' } });
+    ref = await creerDossierEdle(plan);
+  } catch (e) {
+    return dessinerVueRentree(`${nomDocx} : NON enregistré dans OneDrive — ` +
+      String((e && e.message) || e) + `.`);
+  }
+
+  /* L'aperçu vient APRÈS la confirmation : on ne montre pas une pièce comme
+     déposée avant de savoir où elle va. */
+  afficherApercuCles(contenu, nomPdf);
+  if (document.getElementById('apercu-cles-chemin')) {
+    document.getElementById('apercu-cles-chemin').textContent = chemin + ' (dépôt en cours…)';
+  }
+
+  /* 2. LE WORD DANS ONEDRIVE. */
+  let item;
+  try {
+    const blob = await construireDocxCles(t.immeubleId, t.immeubleNom, t.unite, l);
+    const res = await ecrireFichierDansDossier(ref, nomDocx, blob, { headers: {
+      'Content-Type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' } });
+    if (!res || !res.ok) {
+      throw new Error(res && typeof detailErreur === 'function'
+        ? await detailErreur(res) : 'refus de Microsoft');
+    }
+    item = await res.json();
+    /* LE CHEMIN AFFICHÉ EST CELUI DE MICROSOFT, PAS UN CHEMIN RECONSTITUÉ.
+
+       Les dossiers de OneDrive ne portent pas toujours le nom que
+       l'application donne aux unités — c'est la raison d'être de l'écran
+       « Comparer noms OneDrive ». Un chemin deviné serait faux là où on en
+       a le plus besoin. Même règle que pour les documents de garantie. */
+    const brut = item.parentReference && item.parentReference.path;
+    if (brut) {
+      chemin = decodeURIComponent(String(brut).replace(/^\/[^:]*:?/, ''))
+        .replace(/^\/+/, '').split('/').filter(Boolean).join(' / ');
+    }
+    if (document.getElementById('apercu-cles-chemin')) {
+      document.getElementById('apercu-cles-chemin').textContent = chemin;
+    }
+  } catch (e) {
+    /* Même raison : le message attend la fermeture de l'aperçu. */
+    annoncerCles(`${nomDocx} : NON enregistré dans OneDrive — ` +
+      String((e && e.message) || e) + `.`);
+    return;
+  }
+
+  /* 3. LE PDF, CONVERTI PAR ONEDRIVE ET DÉPOSÉ À CÔTÉ.
+
+     C'est le format qu'un locataire ouvre sans y penser, sur les quatre
+     systèmes. Son échec ne doit pas faire passer le Word pour perdu : il
+     est déjà en place, on le dit et on s'arrête là. */
+  try {
+    const pdf = await pdfDepuisOneDrive(item);
+    const res = await ecrireFichierDansDossier(ref, nomPdf, pdf,
+      { headers: { 'Content-Type': 'application/pdf' } });
     if (!res || !res.ok) {
       throw new Error(res && typeof detailErreur === 'function'
         ? await detailErreur(res) : 'refus de Microsoft');
     }
   } catch (e) {
-    return dessinerVueRentree(
-      `${nom} : téléchargé sur ton téléphone, mais NON enregistré dans OneDrive — ` +
-      String((e && e.message) || e) +
-      `. Le fichier de ton téléphone reste valable pour l'envoi.`);
+    annoncerCles(`${nomDocx} enregistré — ${chemin}\n` +
+      `Le PDF n'a PAS pu être produit : ` + String((e && e.message) || e) +
+      `. Ouvre le Word depuis OneDrive et enregistre-le en PDF à la main.`);
+    return;
   }
 
-  dessinerVueRentree(
-    `Document enregistré — ${chemin.replace(/\//g, ' / ')} / ${nom}\n` +
-    `Il a aussi été téléchargé sur ton téléphone.`);
+  /* ON NOTE OÙ LA PIÈCE EST PARTIE.
+
+     Le chemin n'apparaissait que dans l'aperçu, puis disparaissait : le
+     lendemain, plus rien ne disait où le document avait été déposé. Il est
+     désormais conservé sur la ligne, comme pour les documents de garantie
+     dans la fiche de l'unité. */
+  l.clesDepotLe = new Date().toISOString();
+  l.clesChemin = chemin;
+  l.clesFichier = nomPdf;
+  await enregistrerRentree();
+
+  annoncerCles(
+    `Document enregistré — ${chemin} / ${nomPdf}\n` +
+    `Le Word est déposé au même endroit, sous le même nom.` +
+    (dossierCree ? `\nLe dossier du locataire a été créé.` : ''));
+}
+
+/* ---- L'aperçu à l'écran ------------------------------------------------
+
+   Un cadre isolé et deux boutons. Ce qu'on veut ici, c'est voir la pièce
+   avant qu'elle parte. Le message de dépôt attend la fermeture : on ne
+   redessine pas l'écran sous un aperçu ouvert. */
+let messageApresApercuCles = null;
+
+/* UN MESSAGE QUI ARRIVE APRÈS LA FERMETURE DE L'APERÇU.
+
+   Le dépôt du Word, la conversion en PDF et le second dépôt prennent
+   quelques secondes. Rien n'empêche de refermer l'aperçu pendant ce
+   temps — et le message était alors mis en attente d'une fermeture qui
+   avait déjà eu lieu : ni succès ni échec ne s'affichaient jamais.
+
+   On regarde donc si l'aperçu est encore là. S'il l'est, le message
+   attend ; sinon, il s'affiche tout de suite. Constaté le 06/09/2026. */
+function annoncerCles(message) {
+  if (document.getElementById('apercu-cles')) {
+    messageApresApercuCles = message;
+  } else {
+    dessinerVueRentree(message);
+  }
+}
+
+function afficherApercuCles(contenu, nomPdf) {
+  fermerApercuCles();
+  const boite = document.createElement('div');
+  boite.id = 'apercu-cles';
+  boite.className = 'apercu-cles';
+  boite.innerHTML = `
+    <div class="apercu-cles-barre">
+      <span class="apercu-cles-nom">${echapperR(nomPdf)}</span>
+      <button class="btn-connexion" onclick="fermerApercuCles()">Fermer</button>
+    </div>
+    <iframe id="apercu-cles-cadre" class="apercu-cles-cadre" title="Document"></iframe>
+    <p class="apercu-cles-aide">📁 <span id="apercu-cles-chemin">dépôt en cours…</span>
+    <br>Le PDF est déposé à côté du Word : c'est lui qu'il faut joindre au
+    courriel du locataire.</p>`;
+  document.body.appendChild(boite);
+  const cadre = document.getElementById('apercu-cles-cadre');
+  if (cadre) cadre.srcdoc = contenu;
+}
+
+function fermerApercuCles() {
+  const b = document.getElementById('apercu-cles');
+  if (b && b.parentNode) b.parentNode.removeChild(b);
+  if (messageApresApercuCles) {
+    const m = messageApresApercuCles;
+    messageApresApercuCles = null;
+    dessinerVueRentree(m);
+  }
 }
 
 /* ---- Mode d'emploi -----------------------------------------------------
@@ -2732,11 +3252,16 @@ function ouvrirAideRentree() {
       <p><strong>Si une donnée manque</strong> — le nom, le courriel, la date de
       bail, un montant — le document n'est pas établi et l'application dit ce
       qui bloque. Un document incomplet ferait payer une somme fausse.</p>
+      <p><strong>L'application te montre d'abord où elle va écrire</strong>, et
+      te signale ce qui mérite un coup d'œil : un dossier qui va être créé, un
+      nom de dossier différent de celui que tu as tapé, plusieurs dossiers qui
+      pourraient convenir. Rien n'est écrit avant que tu aies confirmé.</p>
       <p class="ex"><strong>Exemple.</strong> Sur le studio 6 de Biche, tu
-      touches le bouton. Le fichier « BICHE-STUDIO-6-OLIVIA-MEGALI.doc » est
-      téléchargé, et le message dit : « Document enregistré — GESTION-LOYERS /
-      rentree / cles-2027 / BICHE-STUDIO-6-OLIVIA-MEGALI.doc ». Tu l'ouvres
-      ensuite dans Envoi Décomptes comme pièce jointe.</p>
+      touches le bouton. L'application demande : « Enregistrer dans BICHE /
+      STUDIO 6 / OLIVIA MEGALI / EDLE ? » en précisant que le dossier de la
+      locataire sera créé. Tu confirmes. Deux fichiers sont déposés, un Word
+      et un PDF, et la ligne garde la date et le chemin. C'est le PDF qu'il
+      faut joindre au courriel.</p>
       <p class="ex"><strong>Le garage.</strong> Il n'a qu'un loyer : le document
       ne parle ni de charges, ni de garantie, ni d'assurance. Le locataire ne
       verse que le premier mois.</p>

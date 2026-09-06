@@ -1,4 +1,4 @@
-// app.js — v121 — 06/09/2026
+// app.js — v122 — 06/09/2026
 // Gestion Loyers — logique applicative
 // Étape 6 : suivi mensuel — un mois en cours créé automatiquement, mois passés
 // consultables ET modifiables (ex. loyer payé en retard, noté après coup).
@@ -743,6 +743,10 @@ function lireFormulaireDansUnite(uniteId) {
   u.designation = get('designation') || u.designation;
   u.locataire = get('locataire') || null;
   u.email = (get('email') || '').trim();
+  /* DEUX ADRESSES PAR UNITÉ. Le garant — le plus souvent un parent — est
+     l'adresse qui tient quand l'étudiant change de boîte ou ne la relève
+     plus. Les décomptes partent aux deux. Ajouté le 06/09/2026. */
+  u.emailGarant = (get('emailGarant') || '').trim();
   u.inoccupe = document.getElementById(`f-inoccupe-${uniteId}`).checked;
   u.loyerBrut = parseFloat(get('loyerBrut')) || 0;
   u.charges = parseFloat(get('charges')) || 0;
@@ -876,6 +880,7 @@ function formulaireEdition(immeuble, u) {
       ${champ('Désignation', 'designation', u.id, u.designation)}
       ${champ('Locataire (vide = libre)', 'locataire', u.id, u.locataire)}
       ${champ('Courriel du locataire', 'email', u.id, u.email)}
+      ${champ('Courriel du garant', 'emailGarant', u.id, u.emailGarant)}
       ${champCheckbox('Inoccupé ce mois (suspend le loyer attendu et les alertes)', 'inoccupe', u.id, u.inoccupe)}
       ${champ('Loyer brut (€)', 'loyerBrut', u.id, u.loyerBrut, 'number')}
       ${champ('Charges (€)', 'charges', u.id, u.charges, 'number')}

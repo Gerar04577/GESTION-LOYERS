@@ -1,4 +1,4 @@
-// rentree.js — v119 — 06/09/2026
+// rentree.js — v123 — 06/09/2026
 // Gestion Loyers — module RENTRÉE, entièrement séparé
 //
 // POURQUOI CE MODULE EXISTE
@@ -213,6 +213,12 @@ function ligneRentreeVide() {
     dateAcompte: null,
     debutBail: null,      /* saisi, distinct des dates d'acompte */
     email: '',            /* adresse du futur locataire */
+    /* DEUX ADRESSES PAR UNITÉ, PAS UNE.
+
+       Un étudiant change de boîte, ne la relève pas, ou la ferme en fin
+       d'année. Le garant — le plus souvent un parent — est l'adresse qui
+       tient. Les décomptes partent aux deux. Ajouté le 06/09/2026. */
+    emailGarant: '',      /* adresse du garant, facultative */
     /* Ce qu'on a répondu quand le nom figurait déjà ailleurs :
        'demenagement', 'homonyme', ou absent tant qu'on n'a pas tranché. */
     montants: { loyer: null, charges: null, poubelles: null,
@@ -304,6 +310,7 @@ function normaliserLigne(l) {
   if (!Array.isArray(l.acomptes)) l.acomptes = [];
   if (l.debutBail === undefined) l.debutBail = null;
   if (typeof l.email !== 'string') l.email = '';
+  if (typeof l.emailGarant !== 'string') l.emailGarant = '';
   /* Reprise des fichiers antérieurs aux acomptes multiples. */
   if (l.acompte != null && !l.acomptes.length) {
     l.acomptes.push({ montant: l.acompte, date: l.dateAcompte || null });
@@ -363,6 +370,21 @@ function aDesMontants(l, immeubleId, designation) {
 
    Une adresse malformée enregistrée serait recopiée dans l'unité à la
    fusion, puis dans un envoi qui échouerait sans qu'on sache pourquoi. */
+/* AU MOINS UNE ADRESSE, PEU IMPORTE LAQUELLE.
+
+   Le garant est facultatif : c'est le COUPLE qui compte. Une unité sans
+   aucune des deux est signalée dans « Ce qui manque », mais ne bloque pas
+   le versement — décision du 06/09/2026. Une adresse MALFORMÉE, elle,
+   bloque toujours : elle partirait dans un envoi qui échouerait sans
+   qu'on sache pourquoi. */
+function aUneAdresse(l) {
+  return !!(String(l.email || '').trim() || String(l.emailGarant || '').trim());
+}
+
+function adressesPlausibles(l) {
+  return emailPlausible(l.email) && emailPlausible(l.emailGarant);
+}
+
 function emailPlausible(v) {
   const t = String(v || '').trim();
   if (!t) return true;                       /* vide est permis à la saisie */
@@ -500,10 +522,17 @@ function manquesRentree() {
     if (!versee && !l.debutBail) manquants.push('début du bail');
     /* Sans adresse, aucun envoi n'est possible — ni le document de remise
        des clés, ni le décompte de charges. */
-    if (!l.email || !emailPlausible(l.email)) manquants.push('courriel');
+    if (!aUneAdresse(l) || !adressesPlausibles(l)) manquants.push('courriel');
     if (!versee) {
+      /* MÊME MESURE QUE LA PORTE DE L'ACOMPTE.
+
+         Cette liste testait `== null`, alors que manquePourAcompte exige un
+         nombre fini et positif depuis la v118. Les deux pouvaient donc se
+         contredire sur une valeur héritée d'un fichier ancien : « Ce qui
+         manque » disait que tout était là, et le bloc acompte restait
+         fermé sans qu'on comprenne pourquoi. */
       montantsApplicables(immeubleId, unite.designation).forEach(m => {
-        if (l.montants[m.cle] == null) manquants.push(m.libelle);
+        if (!montantValable(l.montants[m.cle])) manquants.push(m.libelle);
       });
     }
 
@@ -974,15 +1003,26 @@ function ligneHtmlRentree(immeubleId, unite) {
         </div>`) : ''}
 
     <div class="rentree-champs">
-      <label class="large">courriel
+      <label class="large">courriel du locataire
         <input type="email" inputmode="email" autocapitalize="off"
           class="${emailPlausible(l.email) ? '' : 'champ-faux'}"
           value="${echapperR(l.email)}" placeholder="nom@exemple.be"
-          onchange="changerEmailRentree('${unite.id}', this.value)"></label>
+          onchange="changerEmailRentree('${unite.id}', this.value, 'locataire')"></label>
     </div>
-    ${emailPlausible(l.email) ? '' :
-      `<p class="rentree-alerte-champ">Cette adresse ne ressemble pas à un
-       courriel. Corrige-la avant de verser.</p>`}
+    <div class="rentree-champs">
+      <label class="large">courriel du garant
+        <input type="email" inputmode="email" autocapitalize="off"
+          class="${emailPlausible(l.emailGarant) ? '' : 'champ-faux'}"
+          value="${echapperR(l.emailGarant)}" placeholder="parent@exemple.be"
+          onchange="changerEmailRentree('${unite.id}', this.value, 'garant')"></label>
+    </div>
+    ${adressesPlausibles(l) ? '' :
+      `<p class="rentree-alerte-champ">${
+        emailPlausible(l.email) ? 'L\'adresse du garant' : 'L\'adresse du locataire'}
+       ne ressemble pas à un courriel. Corrige-la avant de verser.</p>`}
+    ${adressesPlausibles(l) && !aUneAdresse(l) ?
+      `<p class="rentree-note">Aucune adresse pour cette unité. Le versement
+       reste possible, mais les décomptes n'auront nulle part où aller.</p>` : ''}
 
     ${(() => {
       /* LE BLOC N'EST PLUS MASQUÉ POUR UN DÉMÉNAGEUR : il est fermé pour
@@ -1162,6 +1202,7 @@ function changerSuivantRentree(uniteId, valeur) {
         assuranceEncaissee: venantDe.unite.assuranceEncaissee,
         assuranceDatePaiement: venantDe.unite.assuranceDatePaiement,
         email: venantDe.unite.email,
+        emailGarant: venantDe.unite.emailGarant || '',
         venantDe: venantDe.unite.designation,
       } : null,
     };
@@ -1225,8 +1266,10 @@ function changerAcompteRentree(uniteId, index, champ, valeur) {
 /* L'adresse est enregistrée telle quelle, même douteuse : l'effacer
    d'autorité ferait disparaître une saisie en cours de frappe. Elle est
    signalée à l'écran et bloque le versement — c'est suffisant. */
-function changerEmailRentree(uniteId, valeur) {
-  ligneRentree(uniteId).email = String(valeur || '').trim();
+function changerEmailRentree(uniteId, valeur, quel) {
+  const l = ligneRentree(uniteId);
+  if (quel === 'garant') l.emailGarant = String(valeur || '').trim();
+  else l.email = String(valeur || '').trim();
   enregistrerRentree().then(() => dessinerVueRentree());
 }
 
@@ -1346,7 +1389,8 @@ async function verserUniteRentree(uniteId) {
           garantieDatePaiement: tardif.unite.garantieDatePaiement,
           assuranceEncaissee: tardif.unite.assuranceEncaissee,
           assuranceDatePaiement: tardif.unite.assuranceDatePaiement,
-          email: tardif.unite.email, venantDe: tardif.unite.designation,
+          email: tardif.unite.email, emailGarant: tardif.unite.emailGarant || '',
+          venantDe: tardif.unite.designation,
         } : null,
       };
       await enregistrerRentree();
@@ -1363,9 +1407,12 @@ async function verserUniteRentree(uniteId) {
 
      Recopiée dans l'unité, elle partirait dans un envoi qui échouerait sans
      qu'on sache pourquoi. Mieux vaut refuser ici. */
-  if (changeDeLocataire && !emailPlausible(l.email)) {
+  if (changeDeLocataire && !adressesPlausibles(l)) {
+    const fautive = emailPlausible(l.email) ? l.emailGarant : l.email;
+    const quelle = emailPlausible(l.email) ? 'du garant' : 'du locataire';
     return dessinerVueRentree(
-      `${u.designation} : l'adresse « ${l.email} » ne ressemble pas à un courriel. Corrige-la.`);
+      `${u.designation} : l'adresse ${quelle} « ${fautive} » ne ressemble pas ` +
+      `à un courriel. Corrige-la.`);
   }
 
   /* PAS PLUS D'UN MOIS D'AVANCE SUR UNE UNITÉ SANS GARANTIE.
@@ -1616,6 +1663,7 @@ async function verserUniteRentree(uniteId) {
         assuranceEncaissee: v.unite.assuranceEncaissee,
         assuranceDatePaiement: v.unite.assuranceDatePaiement,
         email: v.unite.email,
+        emailGarant: v.unite.emailGarant || '',
         /* D'OÙ VIENT L'ARGENT — sans cette mention, le bandeau des
            garanties comptées deux fois ne peut rien signaler pour une ligne
            passée par ce chemin de repli. */
@@ -1647,6 +1695,7 @@ async function verserUniteRentree(uniteId) {
       u.assuranceEncaissee = apporte.assuranceEncaissee;
       u.assuranceDatePaiement = apporte.assuranceDatePaiement;
       if (!l.email && apporte.email) u.email = apporte.email;
+      if (!l.emailGarant && apporte.emailGarant) u.emailGarant = apporte.emailGarant;
     }
   } else {
     /* NOUVEAU LOCATAIRE : l'argent du sortant n'est pas le sien.
@@ -1733,17 +1782,22 @@ async function verserUniteRentree(uniteId) {
     CHAMPS_TEXTE_UNITE.forEach(c => { u[c] = ''; });
   }
 
-  /* L'ADRESSE, SELON LES TROIS CAS DÉCRITS PLUS HAUT. */
-  if (l.email) {
-    u.email = l.email;                    /* saisie dans la rentrée */
-  } else if (changeDeLocataire && premierVersement) {
-    if (demenagement) {
-      /* Relevée avec le reste au moment de la décision. */
-      u.email = (l.apporte && l.apporte.email) || '';
-    } else {
-      u.email = '';                       /* celle du sortant n'est pas la sienne */
+  /* LES DEUX ADRESSES, SELON LES TROIS CAS DÉCRITS PLUS HAUT.
+
+     Locataire et garant suivent exactement la même règle : ce qui a été
+     saisi dans la rentrée gagne ; à défaut, un déménageur emporte les
+     siennes ; à défaut encore, on n'hérite pas de celles du sortant. */
+  [['email', 'email'], ['emailGarant', 'emailGarant']].forEach(([champ, releve]) => {
+    if (l[champ]) {
+      u[champ] = l[champ];                /* saisie dans la rentrée */
+    } else if (changeDeLocataire && premierVersement) {
+      if (demenagement) {
+        u[champ] = (l.apporte && l.apporte[releve]) || '';
+      } else {
+        u[champ] = '';                    /* celle du sortant n'est pas la sienne */
+      }
     }
-  }
+  });
 
   /* La date du dernier acompte a sa place dans garantieDatePaiement, posée
      plus haut. Le DÉBUT DU BAIL est celui qu'on a saisi. */
@@ -2070,12 +2124,12 @@ function compteDe(immeubleId) {
 function manquePourLesCles(immeubleId, unite, l) {
   const m = [];
   if (!l.locataireSuivant) m.push('le nom du locataire');
-  if (!l.email) m.push('son courriel');
-  else if (!emailPlausible(l.email)) m.push('un courriel valable');
+  if (!aUneAdresse(l)) m.push('un courriel — locataire ou garant');
+  else if (!adressesPlausibles(l)) m.push('un courriel valable');
   if (!l.debutBail) m.push('la date de début du bail');
   if (doublonEnAttente(l)) m.push('la réponse au nom en double');
   montantsApplicables(immeubleId, unite.designation).forEach(x => {
-    if (l.montants[x.cle] == null) m.push('le montant : ' + x.libelle);
+    if (!montantValable(l.montants[x.cle])) m.push('le montant : ' + x.libelle);
   });
 
   /* UN DÉMÉNAGEMENT SANS RELEVÉ NE PEUT RIEN DÉDUIRE.
@@ -2469,16 +2523,25 @@ function ouvrirAideRentree() {
       « bail ● » et « EDLE ● » à cocher, mais « avenant — » et « Samadhi — »
       en gris. Il n'y a rien à faire pour ces deux-là.</p>
 
-      <h3>Le courriel</h3>
-      <p>L'adresse du futur locataire. Sans elle, on ne peut lui envoyer ni le
-      document de remise des clés, ni le décompte de charges.</p>
-      <p>L'application vérifie la forme : il faut un arobase, un point après
-      lui, et pas d'espace. Une adresse douteuse s'affiche en rouge et
-      <strong>empêche le versement</strong> — mieux vaut la corriger que de
-      découvrir plus tard qu'un envoi n'est jamais arrivé.</p>
+      <h3>Les deux courriels</h3>
+      <p>Deux adresses par unité : celle du <strong>locataire</strong> et celle
+      du <strong>garant</strong>. S'il n'y en a aucune, on ne peut envoyer ni
+      le document de remise des clés, ni le décompte de charges.</p>
+      <p>Le garant est facultatif, mais c'est souvent lui qui tient : un
+      étudiant change de boîte, ne la relève pas, ou la ferme en fin d'année.
+      L'adresse d'un parent survit à tout ça.</p>
+      <p><strong>Aucune des deux n'est obligatoire pour verser.</strong>
+      L'unité apparaît simplement dans « Ce qui manque », et une note le
+      rappelle sur la ligne. En revanche, une adresse <strong>mal écrite
+      empêche le versement</strong> : elle partirait dans un envoi qui
+      échouerait sans qu'on sache pourquoi.</p>
+      <p>La forme vérifiée est la plus simple : un arobase, un point après
+      lui, pas d'espace.</p>
       <p class="ex"><strong>Exemple.</strong> « olivia.megali@gmail.com »
       passe. « olivia.megali » devient rouge : il manque tout ce qui suit
-      l'arobase.</p>
+      l'arobase. Laisser le champ garant vide ne bloque rien.</p>
+      <p>Les deux adresses suivent le locataire : s'il déménage dans un autre
+      studio du parc, elles le suivent avec sa garantie.</p>
 
       <h3>Les acomptes</h3>
       <p><strong>Le bloc reste fermé tant que la ligne n'est pas

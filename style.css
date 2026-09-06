@@ -1,4 +1,4 @@
-/* style.css — v101 — 05/09/2026 */
+/* style.css — v110 — 06/09/2026 */
 :root {
   --ink: #5f5770;
   --ink-light: #756c8a;
@@ -866,3 +866,16 @@ input[id^="f-montantAssurance-"] {
 .manque-versee { background: #dfeedd; color: #12503d; font-size: 10px;
   padding: 2px 7px; border-radius: 8px; margin-left: 6px; font-weight: 600; }
 .rentree-message.alerte { background: #fbe9e6; color: #8d2b2b; }
+.rentree-champs input.champ-faux { border-color: #c0392b; background: #fbe9e6; }
+.rentree-alerte-champ { margin: 4px 0 0; font-size: 11px; color: #8d2b2b; }
+/* LE DOUBLON DE NOM — trois réponses possibles. */
+.rentree-doublon { background: #fbf3e0; border: 1px solid #e0c98a;
+  border-radius: 10px; padding: 10px 12px; margin: 8px 0 0;
+  font-size: 12px; color: #6b4e11; }
+.rentree-doublon p { margin: 0 0 6px; }
+.rentree-doublon div { margin-bottom: 3px; }
+.rentree-doublon-choix { display: flex; gap: 6px; flex-wrap: wrap; }
+.rentree-doublon-choix .btn-connexion { width: auto; margin: 0; padding: 9px 12px;
+  font-size: 12px; }
+.rentree-doublon-fait { margin: 8px 0 0; font-size: 12px; color: #12503d;
+  background: #dfeedd; border-radius: 8px; padding: 8px 10px; }

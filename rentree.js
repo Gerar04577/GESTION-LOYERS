@@ -1,4 +1,4 @@
-// rentree.js — v101 — 05/09/2026
+// rentree.js — v110 — 06/09/2026
 // Gestion Loyers — module RENTRÉE, entièrement séparé
 //
 // POURQUOI CE MODULE EXISTE
@@ -147,6 +147,18 @@ const CHAMPS_TEXTE_UNITE = [
   'domiciliationOrdrePermanent', 'commentaires', 'notesInternes',
 ];
 
+/* L'ADRESSE ÉLECTRONIQUE SUIT LA PERSONNE, PAS L'UNITÉ.
+
+   Elle avait d'abord été rangée avec les six textes ci-dessus, qui restent
+   attachés au studio. C'était une erreur de la même famille que celle de la
+   garantie : un locataire qui déménage dans le parc perdait son adresse si
+   on ne la ressaisissait pas.
+
+     nouveau locataire   → l'adresse du sortant s'efface, celle de la
+                           rentrée la remplace ;
+     déménagement        → l'adresse suit la personne, comme sa garantie ;
+     locataire qui reste → rien ne bouge.                              */
+
 function immeubleEst(immeubleId, liste) {
   const id = String(immeubleId || '').toLowerCase();
   return liste.some(x => id.includes(x));
@@ -200,6 +212,9 @@ function ligneRentreeVide() {
     acompte: null,        /* ancien champ, conservé pour relire la v89 */
     dateAcompte: null,
     debutBail: null,      /* saisi, distinct des dates d'acompte */
+    email: '',            /* adresse du futur locataire */
+    /* Ce qu'on a répondu quand le nom figurait déjà ailleurs :
+       'demenagement', 'homonyme', ou absent tant qu'on n'a pas tranché. */
     montants: { loyer: null, charges: null, poubelles: null,
                 wifi: null, assurance: null, garantie: null },
     controles: { bail: false, avenant: false, samadhi: false, edle: false },
@@ -288,6 +303,7 @@ function normaliserLigne(l) {
   if (!l || typeof l !== 'object') l = ligneRentreeVide();
   if (!Array.isArray(l.acomptes)) l.acomptes = [];
   if (l.debutBail === undefined) l.debutBail = null;
+  if (typeof l.email !== 'string') l.email = '';
   /* Reprise des fichiers antérieurs aux acomptes multiples. */
   if (l.acompte != null && !l.acomptes.length) {
     l.acomptes.push({ montant: l.acompte, date: l.dateAcompte || null });
@@ -339,6 +355,26 @@ function aDesMontants(l, immeubleId, designation) {
     .some(m => l.montants[m.cle] != null);
 }
 
+/* UNE ADRESSE ÉLECTRONIQUE PLAUSIBLE.
+
+   On ne cherche pas à valider selon la norme — elle autorise des formes que
+   personne n'emploie. On refuse ce qui est manifestement faux : pas
+   d'arobase, pas de point après lui, un espace, deux arobases.
+
+   Une adresse malformée enregistrée serait recopiée dans l'unité à la
+   fusion, puis dans un envoi qui échouerait sans qu'on sache pourquoi. */
+function emailPlausible(v) {
+  const t = String(v || '').trim();
+  if (!t) return true;                       /* vide est permis à la saisie */
+  if (/\s/.test(t)) return false;
+  const parts = t.split('@');
+  if (parts.length !== 2) return false;
+  if (!parts[0].length) return false;
+  const dom = parts[1];
+  return dom.includes('.') && !dom.startsWith('.') && !dom.endsWith('.')
+      && dom.split('.').every(x => x.length > 0);
+}
+
 /* Le total versé en acomptes. C'est lui qui devient la garantie encaissée :
    verser plusieurs fois ne compte jamais deux fois, puisqu'on recalcule à
    partir du total au lieu d'ajouter. */
@@ -377,6 +413,9 @@ function manquesRentree() {
     if (!versee && (l.statut === 'attente' || !l.locataireSuivant)) {
       manquants.push('remplaçant');
     }
+    /* Un doublon non tranché empêche le versement : il manque autant qu'un
+       document. */
+    if (doublonEnAttente(l)) manquants.push('nom en double à trancher');
     CONTROLES_RENTREE.forEach(c => {
       if (!c.partout && !immeubleAvecAvenant(immeubleId)) return;
       if (!l.controles[c.cle]) manquants.push(c.libelle);
@@ -387,10 +426,13 @@ function manquesRentree() {
     const avecGarantie = montantsApplicables(immeubleId, unite.designation)
       .some(m => m.cle === 'garantie');
     if (!versee && avecGarantie && l.statut === 'depart' && !totalAcomptes(l) &&
-        !(estDemenagementInterne(l.locataireSuivant, unite.id) && !l.homonyme)) {
+        !estUnDemenagement(l, unite.id)) {
       manquants.push('acompte');
     }
     if (!versee && !l.debutBail) manquants.push('début du bail');
+    /* Sans adresse, aucun envoi n'est possible — ni le document de remise
+       des clés, ni le décompte de charges. */
+    if (!l.email || !emailPlausible(l.email)) manquants.push('courriel');
     if (!versee) {
       montantsApplicables(immeubleId, unite.designation).forEach(m => {
         if (l.montants[m.cle] == null) manquants.push(m.libelle);
@@ -413,6 +455,55 @@ function manquesRentree() {
    AILLEURS, précisément — pas dans l'unité qu'on est en train de verser.
    Après un premier versement, le nouveau locataire y est installé : sans
    cette exclusion, un second versement le prenait pour un déménagement. */
+/* OÙ CE NOM FIGURE-T-IL DÉJÀ ?
+
+   Deux sources, et toutes deux comptent :
+
+     le LOCATAIRE ACTUEL d'une autre unité — un déménagement, ou un
+       homonyme de l'occupant en place ;
+     le LOCATAIRE SUIVANT d'une autre ligne de rentrée — presque toujours
+       une erreur de saisie, parfois deux personnes du même nom.
+
+   Rend l'unité trouvée et la nature de la source. */
+function trouverMemeNom(nom, uniteExclue) {
+  const cible = String(nom || '').trim().toLowerCase();
+  if (!cible) return null;
+
+  for (const x of toutesUnitesRentree()) {
+    if (x.unite.id === uniteExclue) continue;
+    if (String(x.unite.locataire || '').trim().toLowerCase() === cible) {
+      return { unite: x.unite, immeubleNom: x.immeubleNom, source: 'actuel' };
+    }
+  }
+  if (donneesRentree) {
+    for (const x of toutesUnitesRentree()) {
+      if (x.unite.id === uniteExclue) continue;
+      const autre = donneesRentree.unites[x.unite.id];
+      /* Une ligne déjà versée a posé son locataire dans l'unité : il a été
+         trouvé au premier tour, inutile de le compter une seconde fois. */
+      if (autre && !autre.verseeLe &&
+          String(autre.locataireSuivant || '').trim().toLowerCase() === cible) {
+        return { unite: x.unite, immeubleNom: x.immeubleNom, source: 'rentree' };
+      }
+    }
+  }
+  return null;
+}
+
+/* LA NATURE DU DOUBLON, EN UN SEUL ENDROIT.
+
+   Trois endroits la calculaient encore chacun à sa façon : le champ
+   d'acompte, la confirmation, la fusion. Le champ se grisait sur la seule
+   présence du nom, avant même qu'on ait répondu — et restait grisé après un
+   choix « homonyme ».
+
+   Le choix tranché à la saisie fait foi. La recherche en direct ne sert que
+   de filet, pour une ligne écrite avant ce mécanisme. */
+function estUnDemenagement(l, uniteId) {
+  if (l.doublon) return l.doublon.choix === 'demenagement';
+  return estDemenagementInterne(l.locataireSuivant, uniteId) && !l.homonyme;
+}
+
 function estDemenagementInterne(nom, uniteExclue) {
   if (!nom || typeof appData === 'undefined' || !appData) return false;
   const cible = String(nom).trim().toLowerCase();
@@ -460,7 +551,7 @@ function messageEstUneAlerte(message) {
      message annonce un succès pour les unes et un échec pour les autres,
      en nommant celles qui demandent une correction à la main. Il était
      classé comme une confirmation, et restait hors de vue. */
-  return /NON vers|impossible|non enregistr|Aucune|à vérifier|saisis |Indique |déjà été versée|place-toi|n'ont pas pu|ATTENTION/i
+  return /NON vers|impossible|non enregistr|Aucune|à vérifier|saisis |Indique |déjà été versée|place-toi|n'ont pas pu|ATTENTION|ne ressemble pas|figure déjà/i
     .test(String(message));
 }
 
@@ -486,6 +577,8 @@ function dessinerVueRentree(message) {
       echapperR(message).replace(/\n/g, '<br>')}</div>` : ''}
     ${blocPresenceRentree()}
     <div class="rentree-douteux" id="rentree-douteux" style="display:none"></div>
+    ${signalerDoublonsEnAttente()}
+    ${signalerDoublesGaranties()}
     <p class="rentree-resume">${resumeStatuts()}</p>
     <button class="btn-connexion rentree-manques"
       onclick="ouvrirVueManques()">📝 Ce qui manque — ${c.locataires} locataire${
@@ -548,6 +641,96 @@ function dessinerVueRentree(message) {
    On repère donc, à l'ouverture, les unités dont le locataire suivant est
    DÉJÀ en place sans qu'aucun versement soit noté. Rien n'est corrigé
    automatiquement : on signale, l'opérateur juge. */
+/* LA GARANTIE APPARAÎT DANS DEUX UNITÉS pendant un déménagement.
+
+   Marc arrive au studio 1 avec ses 400 €, mais le studio 7 les porte encore
+   tant qu'il n'a pas été versé : le total des garanties est faussé d'autant.
+
+   C'est cohérent — c'est le même argent en transit — mais il vaut mieux le
+   dire que de laisser découvrir un écart au total. */
+/* LE BANDEAU DES NOMS EN DOUBLE NON TRANCHÉS.
+
+   Un doublon détecté sur la trentième ligne d'une liste de cinquante reste
+   invisible tant qu'on ne descend pas. Le bandeau les rassemble en tête. */
+/* LE BANDEAU RECENSE EN PERMANENCE, PAS SEULEMENT À LA SAISIE.
+
+   Un doublon né de la SECONDE saisie n'était signalé que sur la seconde
+   ligne : la première l'ignorait, puisqu'au moment où on l'avait remplie le
+   nom n'existait nulle part ailleurs.
+
+   Le bandeau recompte donc à chaque dessin, sur les noms tels qu'ils sont
+   maintenant. Constaté en simulation le 05/09/2026. */
+function signalerDoublonsEnAttente() {
+  if (!donneesRentree) return '';
+
+  /* Tous les noms en présence, actuels et futurs, avec leur unité. */
+  const par = new Map();
+  toutesUnitesRentree().forEach(({ unite, immeubleNom }) => {
+    const l = donneesRentree.unites[unite.id];
+    const ajouter = (nom, futur) => {
+      const c = String(nom || '').trim().toLowerCase();
+      if (!c) return;
+      if (!par.has(c)) par.set(c, []);
+      par.get(c).push({ unite, immeubleNom, futur, nom: String(nom).trim(), ligne: l });
+    };
+    /* UNE UNITÉ VERSÉE NE COMPTE QU'UNE FOIS.
+
+       Après le versement, le locataire suivant EST devenu le locataire de
+       l'unité. L'ajouter aux deux titres produisait un faux doublon sur
+       chaque unité versée — « STUDIO 3 et STUDIO 3 ». Constaté en
+       simulation le 05/09/2026. */
+    if (l && l.verseeLe) {
+      ajouter(unite.locataire, false);
+      return;
+    }
+    ajouter(unite.locataire, false);
+    if (l && l.statut !== 'reste') ajouter(l.locataireSuivant, true);
+  });
+
+  const attente = [];
+  par.forEach(liste => {
+    if (liste.length < 2) return;
+    /* Tranché sur au moins une des lignes futures : plus rien à demander. */
+    const futurs = liste.filter(x => x.futur);
+    if (!futurs.length) return;
+    if (futurs.every(x => x.ligne && x.ligne.doublon && x.ligne.doublon.choix)) return;
+    attente.push({
+      nom: liste[0].nom,
+      ou: liste.map(x => x.unite.designation + (x.futur ? ' (à venir)' : '')).join(' et '),
+    });
+  });
+
+  if (!attente.length) return '';
+  return `<div class="rentree-doublon" style="margin-bottom:10px">
+    <p><strong>${attente.length} nom(s) en double à trancher</strong></p>
+    ${attente.map(x => `<div>${echapperR(x.nom)} — ${echapperR(x.ou)}</div>`).join('')}
+    <p>Déménagement, homonyme ou erreur ? Réponds sur la ligne concernée :
+    ces unités ne peuvent pas être versées avant.</p></div>`;
+}
+
+function signalerDoublesGaranties() {
+  if (!donneesRentree) return '';
+  const doubles = [];
+  toutesUnitesRentree().forEach(({ unite }) => {
+    const l = donneesRentree.unites[unite.id];
+    if (!l || !l.verseeLe || !l.demenagement || !l.apporte) return;
+    const source = toutesUnitesRentree().find(x =>
+      x.unite.designation === l.apporte.venantDe);
+    /* Si l'unité d'origine porte encore le même locataire, l'argent y est
+       toujours compté. */
+    if (source && String(source.unite.locataire || '').trim().toLowerCase()
+        === String(l.locataireSuivant || '').trim().toLowerCase()) {
+      doubles.push(`${l.locataireSuivant} — ${l.apporte.venantDe} et ${unite.designation}`);
+    }
+  });
+  if (!doubles.length) return '';
+  return `<div class="rentree-douteux" style="display:block">
+    <strong>${doubles.length} garantie(s) comptée(s) deux fois</strong>
+    ${doubles.map(d => `<div>${echapperR(d)}</div>`).join('')}
+    <p>C'est le même argent, en transit. L'écart disparaîtra quand l'unité
+    d'origine sera versée à son tour.</p></div>`;
+}
+
 function signalerVersementsDouteux() {
   if (!donneesRentree) return;
   const douteuses = toutesUnitesRentree().filter(({ unite }) => {
@@ -638,7 +821,7 @@ function ligneHtmlRentree(immeubleId, unite) {
   const l = ligneRentree(unite.id);
   const st = STATUTS_RENTREE.find(s => s.cle === l.statut) || STATUTS_RENTREE[0];
   const avecAvenant = immeubleAvecAvenant(immeubleId);
-  const demenage = estDemenagementInterne(l.locataireSuivant, unite.id) && !l.homonyme;
+  const demenage = estUnDemenagement(l, unite.id);
   const attendRemplacant = l.statut === 'depart' || l.statut === 'attente';
 
   /* LES QUATRE CASES À COCHER.
@@ -699,6 +882,40 @@ function ligneHtmlRentree(immeubleId, unite) {
           onchange="changerSuivantRentree('${unite.id}', this.value)"></label>
     </div>
 
+    ${l.doublon ? (l.doublon.choix
+      ? `<p class="rentree-doublon-fait">${
+          l.doublon.choix === 'demenagement'
+            ? `Déménagement depuis ${echapperR(l.doublon.unite)} — sa garantie et son adresse le suivent.`
+            : `Homonyme de l'occupant de ${echapperR(l.doublon.unite)} — deux personnes distinctes.`}
+         <button class="btn-connexion mini" onclick="rouvrirDoublonRentree('${unite.id}')"
+           >revenir dessus</button></p>`
+      : `<div class="rentree-doublon">
+          <p><strong>Ce nom figure déjà</strong> ${l.doublon.source === 'rentree'
+            ? `comme futur locataire de ${echapperR(l.doublon.unite)}`
+            : `à ${echapperR(l.doublon.unite)}`} — ${echapperR(l.doublon.immeuble)}.
+          De quoi s'agit-il ?</p>
+          <div class="rentree-doublon-choix">
+            ${l.doublon.source === 'actuel' ? `<button class="btn-connexion mini"
+              onclick="trancherDoublonRentree('${unite.id}','demenagement')">Déménagement</button>` : ''}
+            <button class="btn-connexion mini"
+              onclick="trancherDoublonRentree('${unite.id}','homonyme')">${
+              l.doublon.source === 'rentree' ? 'Deux personnes' : 'Homonyme'}</button>
+            <button class="btn-connexion mini retirer"
+              onclick="trancherDoublonRentree('${unite.id}','erreur')">Erreur de saisie</button>
+          </div>
+        </div>`) : ''}
+
+    <div class="rentree-champs">
+      <label class="large">courriel
+        <input type="email" inputmode="email" autocapitalize="off"
+          class="${emailPlausible(l.email) ? '' : 'champ-faux'}"
+          value="${echapperR(l.email)}" placeholder="nom@exemple.be"
+          onchange="changerEmailRentree('${unite.id}', this.value)"></label>
+    </div>
+    ${emailPlausible(l.email) ? '' :
+      `<p class="rentree-alerte-champ">Cette adresse ne ressemble pas à un
+       courriel. Corrige-la avant de verser.</p>`}
+
     ${demenage ? `<p class="rentree-note">Déménagement interne : aucun acompte,
       la garantie du locataire le suit.</p>` : `
     <p class="rentree-sous-titre">Acomptes${
@@ -758,9 +975,110 @@ function changerStatutRentree(uniteId, valeur) {
   ligneRentree(uniteId).statut = valeur;
   enregistrerRentree().then(() => dessinerVueRentree());
 }
+/* LE DÉMÉNAGEMENT SE CONSTATE À LA SAISIE DU NOM, PAS AU VERSEMENT.
+
+   Il était constaté au premier versement, en cherchant le nom parmi les
+   occupants des autres unités. Mais rien n'oblige à verser le studio
+   d'arrivée en premier : si l'ancien est reloué d'abord, le déménageur n'y
+   est plus, et l'on ne trouve rien.
+
+   Marc arrivait alors avec ZÉRO garantie au lieu de ses 400 €, et sans
+   adresse. Ses versements étaient perdus sans un mot. Constaté en
+   simulation le 05/09/2026.
+
+   Au moment où l'on tape son nom, en revanche, il est encore chez lui. On
+   relève donc là, et l'on conserve : l'ordre des versements n'a plus
+   d'importance. */
 function changerSuivantRentree(uniteId, valeur) {
-  ligneRentree(uniteId).locataireSuivant = String(valeur || '').trim();
+  const l = ligneRentree(uniteId);
+  const nom = String(valeur || '').trim();
+  const change = nom.toLowerCase() !== String(l.locataireSuivant || '').trim().toLowerCase();
+  l.locataireSuivant = nom;
+
+  /* Le nom a changé : ce qui avait été tranché sur l'ancien n'a plus
+     d'objet. Une unité déjà versée conserve sa décision. */
+  if (change && !l.verseeLe) {
+    delete l.apporte; delete l.doublon; delete l.homonyme;
+  }
+
+  /* ON CHERCHE LE NOM DANS LES DEUX SOURCES.
+
+     La recherche ne portait que sur les locataires ACTUELS. Le même futur
+     locataire inscrit dans DEUX LIGNES DE RENTRÉE — Julie au studio 3 et au
+     studio 8 — n'était pas signalé : c'est pourtant l'erreur de saisie la
+     plus probable, et à la fusion elle aurait occupé deux studios.
+
+     Constaté en simulation le 05/09/2026. */
+  const venantDe = nom ? trouverMemeNom(nom, uniteId) : null;
+
+  if (venantDe && !l.verseeLe) {
+    /* CE NOM FIGURE DÉJÀ AILLEURS — trois causes possibles, et rien dans
+       les données ne permet de trancher :
+
+         déménagement  la même personne change de studio ;
+         homonyme      deux personnes distinctes ;
+         erreur        le même locataire saisi deux fois par mégarde.
+
+       La question était posée au premier versement, donc des mois après la
+       saisie. Elle l'est désormais tout de suite, sur la ligne.
+
+       ON RELÈVE DÈS MAINTENANT ce que la personne apporterait : elle est
+       encore chez elle. Si l'ancien studio était reloué d'abord, on ne
+       trouverait plus rien. Mais on ne s'en sert qu'une fois tranché. */
+    l.doublon = {
+      unite: venantDe.unite.designation,
+      immeuble: venantDe.immeubleNom,
+      source: venantDe.source,
+      choix: null,
+      /* Un nom trouvé dans une autre LIGNE DE RENTRÉE n'apporte rien : la
+         personne n'occupe pas encore ce studio, il n'y a ni garantie ni
+         adresse à reprendre. Seul un locataire en place en a. */
+      releve: venantDe.source === 'actuel' ? {
+        garantieEncaissee: venantDe.unite.garantieEncaissee,
+        garantieDatePaiement: venantDe.unite.garantieDatePaiement,
+        assuranceEncaissee: venantDe.unite.assuranceEncaissee,
+        assuranceDatePaiement: venantDe.unite.assuranceDatePaiement,
+        email: venantDe.unite.email,
+        venantDe: venantDe.unite.designation,
+      } : null,
+    };
+    delete l.apporte;
+  }
   enregistrerRentree().then(() => dessinerVueRentree());
+}
+
+/* LES TROIS RÉPONSES AU DOUBLON. */
+function trancherDoublonRentree(uniteId, choix) {
+  const l = ligneRentree(uniteId);
+  if (!l.doublon) return;
+
+  if (choix === 'erreur') {
+    l.locataireSuivant = '';
+    delete l.doublon; delete l.apporte; delete l.homonyme;
+  } else if (choix === 'demenagement' && l.doublon.source === 'actuel') {
+    l.doublon.choix = 'demenagement';
+    l.apporte = l.doublon.releve;   /* garantie, assurance et adresse le suivent */
+    l.homonyme = false;
+  } else {
+    l.doublon.choix = 'homonyme';
+    delete l.apporte;               /* deux personnes : rien ne suit */
+    l.homonyme = true;
+  }
+  enregistrerRentree().then(() => dessinerVueRentree());
+}
+
+/* Revenir sur un choix déjà fait, tant que l'unité n'est pas versée. */
+function rouvrirDoublonRentree(uniteId) {
+  const l = ligneRentree(uniteId);
+  if (!l.doublon || l.verseeLe) return;
+  l.doublon.choix = null;
+  delete l.apporte; delete l.homonyme;
+  enregistrerRentree().then(() => dessinerVueRentree());
+}
+
+/* Un doublon détecté, pas encore tranché. Bloque le versement. */
+function doublonEnAttente(l) {
+  return !!(l.doublon && !l.doublon.choix);
 }
 function changerAcompteRentree(uniteId, index, champ, valeur) {
   const l = ligneRentree(uniteId);
@@ -771,6 +1089,14 @@ function changerAcompteRentree(uniteId, index, champ, valeur) {
   } else {
     l.acomptes[index].date = valeur || null;
   }
+  enregistrerRentree().then(() => dessinerVueRentree());
+}
+
+/* L'adresse est enregistrée telle quelle, même douteuse : l'effacer
+   d'autorité ferait disparaître une saisie en cours de frappe. Elle est
+   signalée à l'écran et bloque le versement — c'est suffisant. */
+function changerEmailRentree(uniteId, valeur) {
+  ligneRentree(uniteId).email = String(valeur || '').trim();
   enregistrerRentree().then(() => dessinerVueRentree());
 }
 
@@ -833,48 +1159,80 @@ async function verserUniteRentree(uniteId) {
     return dessinerVueRentree("Indique d'abord le remplaçant.");
   }
 
-  /* LES HOMONYMES NE SONT PAS DES DÉMÉNAGEMENTS.
+  /* La question de l'homonymie était posée ici, au premier versement.
+     Elle est désormais tranchée à la saisie du nom, sur la ligne — des mois
+     plus tôt, au moment où l'on sait de qui il s'agit. */
 
-     La détection repose sur le nom seul. Sur cinquante studios d'étudiants,
-     deux personnes peuvent porter le même. Prises pour un déménagement,
-     leur garantie ne serait pas initialisée et leur acompte jamais porté au
-     crédit — sans que rien ne le signale.
+  /* UN DOUBLON NON TRANCHÉ BLOQUE LE VERSEMENT.
 
-     On demande donc confirmation, en nommant l'unité où le nom figure
-     déjà. */
-  if (changeDeLocataire && !l.instantane &&
-      estDemenagementInterne(l.locataireSuivant, uniteId)) {
-    const ou = toutesUnitesRentree().find(x => x.unite.id !== uniteId &&
-      x.unite.locataire && String(x.unite.locataire).trim().toLowerCase()
-        === String(l.locataireSuivant).trim().toLowerCase());
-    const memePersonne = confirm(
-      `« ${l.locataireSuivant} » occupe déjà ${ou ? ou.unite.designation : 'une autre unité'}.\n\n` +
-      `S'agit-il de la MÊME personne qui déménage ?\n\n` +
-      `Oui : sa garantie le suit, aucun acompte n'est réclamé.\n` +
-      `Non : c'est un homonyme, sa garantie repart de zéro.`);
-    l.homonyme = !memePersonne;
-  } else if (!l.instantane) {
-    l.homonyme = false;
+     Verser sans savoir s'il s'agit d'un déménagement ou d'un homonyme, ce
+     serait choisir au hasard entre reporter une garantie de 400 € et la
+     mettre à zéro. */
+  /* Un doublon né APRÈS la saisie de cette ligne n'a pas été détecté sur
+     elle : on revérifie au versement. */
+  if (!l.doublon && changeDeLocataire) {
+    const tardif = trouverMemeNom(l.locataireSuivant, uniteId);
+    if (tardif) {
+      l.doublon = {
+        unite: tardif.unite.designation, immeuble: tardif.immeubleNom,
+        source: tardif.source, choix: null,
+        releve: tardif.source === 'actuel' ? {
+          garantieEncaissee: tardif.unite.garantieEncaissee,
+          garantieDatePaiement: tardif.unite.garantieDatePaiement,
+          assuranceEncaissee: tardif.unite.assuranceEncaissee,
+          assuranceDatePaiement: tardif.unite.assuranceDatePaiement,
+          email: tardif.unite.email, venantDe: tardif.unite.designation,
+        } : null,
+      };
+      await enregistrerRentree();
+    }
   }
-  /* ON PEUT VERSER PLUSIEURS FOIS.
 
-     Le dossier de rentrée se remplit d'février à l'été : on verse une
-     première fois dès que le bail est signé, puis à nouveau quand un
-     second acompte arrive ou qu'un montant est complété.
+  if (doublonEnAttente(l)) {
+    return dessinerVueRentree(
+      `${u.designation} : « ${l.locataireSuivant} » figure déjà à ${l.doublon.unite}. ` +
+      `Indique s'il s'agit d'un déménagement, d'un homonyme ou d'une erreur.`);
+  }
 
-     Ce n'est sans danger que parce que la garantie encaissée est
-     RECALCULÉE à partir du total des acomptes, jamais additionnée — voir
-     plus bas. L'interdiction posée le 02/09 visait justement le cas où
-     elle s'ajoutait.
+  /* UNE ADRESSE FAUSSE BLOQUE LE VERSEMENT.
 
-     Le versement suivant doit se faire dans le MÊME mois que le premier :
-     sinon on installerait le locataire dans deux mois différents. */
+     Recopiée dans l'unité, elle partirait dans un envoi qui échouerait sans
+     qu'on sache pourquoi. Mieux vaut refuser ici. */
+  if (changeDeLocataire && !emailPlausible(l.email)) {
+    return dessinerVueRentree(
+      `${u.designation} : l'adresse « ${l.email} » ne ressemble pas à un courriel. Corrige-la.`);
+  }
+
+  /* ON PEUT VERSER PLUSIEURS FOIS, MAIS DANS LE MÊME MOIS.
+
+     Le dossier de rentrée se remplit de février à l'été : on verse une
+     première fois dès que le bail est signé, puis à nouveau quand un second
+     acompte arrive ou qu'un montant est complété. Cela ne compte jamais
+     deux fois, puisque la garantie encaissée est recalculée à partir du
+     total des acomptes.
+
+     MAIS LE SECOND VERSEMENT DOIT SE FAIRE DANS LE MÊME MOIS QUE LE
+     PREMIER. Sinon on installe le locataire dans deux mois différents :
+     septembre le porte déjà, octobre le reçoit aussi. Le mois enregistré
+     est écrasé, l'annulation devient impossible depuis l'un comme depuis
+     l'autre, et l'instantané de septembre est perdu.
+
+     Ce contrôle existait en v101. Il était collé au bloc de confirmation
+     d'homonymie que la version 105 a remplacé par les trois réponses au
+     doublon : il est parti avec lui, sans que je m'en aperçoive. Aucun des
+     vingt-neuf bancs ne couvrait ce cas. Rétabli le 06/09/2026 sur
+     signalement.
+
+     L'ORDRE IMPORTE : ce contrôle doit venir AVANT premierVersement, sinon
+     un second versement venu d'un autre mois aurait déjà été traité. */
   if (l.verseeLe && l.verseeVers !== moisAffiche) {
     return dessinerVueRentree(
-      `${u.designation} a déjà été versée dans ${l.verseeVers}. Place-toi sur ce mois pour la compléter.`);
+      `${u.designation} a déjà été versée dans ${l.verseeVers}. ` +
+      `Place-toi sur ce mois pour la compléter.`);
   }
-  /* PREMIER VERSEMENT OU NON — le marqueur doit être LU AVANT d'être posé,
-     et avant la confirmation, qui en dépend pour son texte. */
+
+  /* PREMIER VERSEMENT OU NON — lu avant d'être posé, et avant la
+     confirmation, qui en dépend pour son texte. */
   const premierVersement = !l.instantane;
 
   /* Q3 — PAS DE PREMIER VERSEMENT SANS DATE DE BAIL.
@@ -911,8 +1269,7 @@ async function verserUniteRentree(uniteId) {
   /* La décision de déménagement n'est prise que plus bas ; on l'anticipe
      ici pour le texte, sans l'enregistrer. */
   const demenagementPrevu = l.instantane ? l.demenagement
-    : (!changeDeLocataire ||
-       (estDemenagementInterne(l.locataireSuivant, uniteId) && !l.homonyme));
+    : (!changeDeLocataire || estUnDemenagement(l, uniteId));
 
   const remplaces = montantsIci
     .filter(m => l.montants[m.cle] != null)
@@ -968,8 +1325,26 @@ async function verserUniteRentree(uniteId) {
      troisième de la famille — premier versement, homonymie, déménagement —
      et la dernière : toutes reposaient sur le même piège. */
   if (premierVersement) {
-    l.demenagement = !changeDeLocataire ||
-      (estDemenagementInterne(l.locataireSuivant, uniteId) && !l.homonyme);
+    /* Le relevé fait foi : il a été pris quand le déménageur était encore
+       chez lui. La recherche en direct ne sert que de filet, pour une ligne
+       venue d'une version antérieure. */
+    /* Le choix tranché à la saisie fait foi. La recherche en direct ne sert
+       que de filet, pour une ligne venue d'une version antérieure. */
+    l.demenagement = !changeDeLocataire || estUnDemenagement(l, uniteId);
+
+    /* CE QUI APPARTIENT AU DÉMÉNAGEUR EST RELEVÉ MAINTENANT.
+
+       La garantie et l'adresse étaient allées chercher dans l'unité qu'il
+       occupe encore — au moment du versement. Mais rien n'oblige à verser
+       le studio d'arrivée en premier : si l'ancien est reloué d'abord, le
+       déménageur n'y est plus, et l'on ne trouve rien.
+
+       Résultat constaté en simulation le 05/09/2026 : Marc arrivait avec
+       ZÉRO garantie au lieu de ses 400 €, et sans adresse. Ses versements
+       étaient perdus sans un mot.
+
+       On relève donc au moment de la DÉCISION, une fois pour toutes, et on
+       conserve avec elle. L'ordre des versements n'a plus d'importance. */
   }
   const demenagement = l.demenagement;
   /* Instantané complet, même principe qu'à l'annulation. */
@@ -1010,10 +1385,47 @@ async function verserUniteRentree(uniteId) {
     .filter(a => a && a.date).map(a => a.date).sort().pop() || null;
 
   if (demenagement) {
-    /* DÉMÉNAGEMENT INTERNE : la garantie encaissée suit la personne, telle
-       quelle — c'est le même argent, rattaché à une autre unité. Le
-       MONTANT DÛ, lui, est bien celui du nouveau bail s'il a été saisi :
-       c'est la boucle ci-dessus qui l'a posé, et c'est voulu. */
+    /* DÉMÉNAGEMENT INTERNE : LA GARANTIE SUIT LA PERSONNE — encore
+       faut-il aller la chercher.
+
+       « Telle quelle » était faux : l'unité d'arrivée porte celle du
+       SORTANT, pas celle du déménageur. Marc arrivait dans un studio dont
+       la garantie valait 740 € alors qu'il en avait versé 400. Défaut
+       trouvé en simulation le 05/09/2026, en même temps que celui de
+       l'adresse — même cause.
+
+       On va donc la chercher dans l'unité qu'il occupe encore. Le MONTANT
+       DÛ, lui, reste celui du nouveau bail : c'est la boucle ci-dessus qui
+       l'a posé, et c'est voulu. */
+    /* Le relevé pris à la saisie du nom fait foi. À défaut — ligne venue
+       d'une version antérieure — on cherche en direct : cela ne marche que
+       si le déménageur est encore chez lui, mais c'est mieux que rien. */
+    const apporte = l.apporte || (() => {
+      const v = toutesUnitesRentree().find(x => x.unite.id !== uniteId &&
+        String(x.unite.locataire || '').trim().toLowerCase()
+          === String(l.locataireSuivant).trim().toLowerCase());
+      return v ? {
+        garantieEncaissee: v.unite.garantieEncaissee,
+        garantieDatePaiement: v.unite.garantieDatePaiement,
+        assuranceEncaissee: v.unite.assuranceEncaissee,
+        assuranceDatePaiement: v.unite.assuranceDatePaiement,
+        email: v.unite.email,
+        /* D'OÙ VIENT L'ARGENT — sans cette mention, le bandeau des
+           garanties comptées deux fois ne peut rien signaler pour une ligne
+           passée par ce chemin de repli. */
+        venantDe: v.unite.designation,
+      } : null;
+    })();
+    if (apporte) {
+      /* On conserve le relevé retrouvé : la ligne l'aura pour ses
+         versements suivants et pour l'avertissement. */
+      if (!l.apporte) l.apporte = apporte;
+      u.garantieEncaissee = apporte.garantieEncaissee;
+      u.garantieDatePaiement = apporte.garantieDatePaiement;
+      u.assuranceEncaissee = apporte.assuranceEncaissee;
+      u.assuranceDatePaiement = apporte.assuranceDatePaiement;
+      if (!l.email && apporte.email) u.email = apporte.email;
+    }
   } else {
     /* NOUVEAU LOCATAIRE : l'argent du sortant n'est pas le sien.
 
@@ -1077,6 +1489,18 @@ async function verserUniteRentree(uniteId) {
      une unité qui RESTE garde ses textes. */
   if (changeDeLocataire && premierVersement) {
     CHAMPS_TEXTE_UNITE.forEach(c => { u[c] = ''; });
+  }
+
+  /* L'ADRESSE, SELON LES TROIS CAS DÉCRITS PLUS HAUT. */
+  if (l.email) {
+    u.email = l.email;                    /* saisie dans la rentrée */
+  } else if (changeDeLocataire && premierVersement) {
+    if (demenagement) {
+      /* Relevée avec le reste au moment de la décision. */
+      u.email = (l.apporte && l.apporte.email) || '';
+    } else {
+      u.email = '';                       /* celle du sortant n'est pas la sienne */
+    }
   }
 
   /* La date du dernier acompte a sa place dans garantieDatePaiement, posée
@@ -1225,6 +1649,10 @@ async function annulerVersementRentree(uniteId) {
      refait doit repartir d'une décision neuve. */
   delete l.instantane;
   delete l.demenagement;
+  delete l.apporte;
+  /* Le choix du doublon se rouvre aussi : l'unité redevient modifiable, et
+     la situation a pu changer entre-temps. */
+  if (l.doublon) { l.doublon.choix = null; delete l.homonyme; }
   await enregistrerRentree();
   dessinerVueRentree(`Versement de ${u.designation} annulé.`);
 }
@@ -1261,11 +1689,19 @@ async function remiseAZeroRentree() {
       sansInstantane.push(trouve.unite.designation);
       return;                /* on n'annule pas ce qu'on ne sait pas défaire */
     }
+    /* On conserve TOUT ce qui va être effacé : si la sauvegarde échoue, la
+       décision de déménagement et le relevé doivent revenir avec le reste.
+       Sans cela, un versement refait repartait d'une décision perdue. */
     memoire.set(l, { verseeLe: l.verseeLe, verseeVers: l.verseeVers,
-                     versePar: l.versePar, instantane: l.instantane });
+                     versePar: l.versePar, instantane: l.instantane,
+                     demenagement: l.demenagement, apporte: l.apporte,
+                     choixDoublon: l.doublon ? l.doublon.choix : undefined,
+                     homonyme: l.homonyme });
     l.verseeLe = null; l.verseeVers = null; l.versePar = null;
     delete l.instantane;
     delete l.demenagement;
+    delete l.apporte;
+    if (l.doublon) { l.doublon.choix = null; delete l.homonyme; }
   });
 
   const r = await sauvegarderEtVerifier();
@@ -1276,7 +1712,13 @@ async function remiseAZeroRentree() {
       Object.keys(unite).forEach(k => delete unite[k]);
       Object.assign(unite, avant);
     });
-    versees.forEach(([, l]) => Object.assign(l, memoire.get(l)));
+    versees.forEach(([, l]) => {
+      const m = memoire.get(l);
+      Object.assign(l, { verseeLe: m.verseeLe, verseeVers: m.verseeVers,
+        versePar: m.versePar, instantane: m.instantane,
+        demenagement: m.demenagement, apporte: m.apporte, homonyme: m.homonyme });
+      if (l.doublon) l.doublon.choix = m.choixDoublon;
+    });
     if (typeof sauvegarderLocal === 'function') sauvegarderLocal();
     return dessinerVueRentree(
       `Remise à zéro non enregistrée. ${r.message} Recharge le mois avant de recommencer.`);
@@ -1399,6 +1841,27 @@ function ouvrirAideRentree() {
       mois précédent reste. Un champ rempli la remplace. C'est vrai pour un
       locataire qui reste comme pour un nouveau.</p>
 
+      <h3>Un nom qui figure déjà ailleurs</h3>
+      <p>Si le nom du remplaçant est déjà celui d'un occupant du parc,
+      l'application le signale <strong>dès la saisie</strong> et demande de
+      quoi il s'agit :</p>
+      <p>Le nom est cherché dans <strong>deux sources</strong> : les
+      locataires en place, et les futurs locataires déjà inscrits dans une
+      autre ligne de rentrée. Ce second cas est presque toujours une erreur
+      de saisie.</p>
+      <p><strong>Déménagement</strong> — la même personne change de studio.
+      Sa garantie, son assurance payée et son adresse le suivent ; aucun
+      acompte ne lui est réclamé.<br>
+      <strong>Homonyme</strong> — deux personnes distinctes. Chacune sa
+      garantie, son acompte, son adresse.<br>
+      <strong>Erreur de saisie</strong> — le nom est effacé.</p>
+      <p>Tant que ce n'est pas tranché, <strong>l'unité ne peut pas être
+      versée</strong>. Un bandeau en tête rassemble tous les noms en
+      attente.</p>
+      <p>Ce que la personne apporte est relevé au moment de la saisie, quand
+      elle est encore chez elle. L'ordre dans lequel tu verses les deux
+      unités n'a donc aucune importance.</p>
+
       <h3>Le début du bail</h3>
       <p>Une date à part, distincte des acomptes — ceux-ci sont versés au
       printemps, le bail commence en septembre. Le bouton « 1<sup>er</sup>
@@ -1412,6 +1875,10 @@ function ouvrirAideRentree() {
       qu'un montant est complété. Le bouton devient « Verser à nouveau ».</p>
       <p>Verser deux fois ne compte jamais deux fois : la garantie encaissée
       est recalculée à partir du total des acomptes, jamais additionnée.</p>
+      <p><strong>Mais toujours dans le même mois.</strong> Si tu as versé en
+      septembre et que tu te trouves en octobre, l'application refuse et te
+      dit où te placer : verser dans deux mois installerait le locataire
+      deux fois, et l'annulation deviendrait impossible.</p>
       <p><strong>Au premier versement seulement</strong>, l'assurance payée
       et les loyers versés par le sortant repartent à zéro — ils ne sont pas
       les siens. Aux versements suivants ils sont conservés : ce sont

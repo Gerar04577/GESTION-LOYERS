@@ -741,6 +741,7 @@ function lireFormulaireDansUnite(uniteId) {
 
   u.designation = get('designation') || u.designation;
   u.locataire = get('locataire') || null;
+  u.email = (get('email') || '').trim();
   u.inoccupe = document.getElementById(`f-inoccupe-${uniteId}`).checked;
   u.loyerBrut = parseFloat(get('loyerBrut')) || 0;
   u.charges = parseFloat(get('charges')) || 0;
@@ -873,6 +874,7 @@ function formulaireEdition(immeuble, u) {
     <div class="edit-form" id="form-${u.id}">
       ${champ('Désignation', 'designation', u.id, u.designation)}
       ${champ('Locataire (vide = libre)', 'locataire', u.id, u.locataire)}
+      ${champ('Courriel du locataire', 'email', u.id, u.email)}
       ${champCheckbox('Inoccupé ce mois (suspend le loyer attendu et les alertes)', 'inoccupe', u.id, u.inoccupe)}
       ${champ('Loyer brut (€)', 'loyerBrut', u.id, u.loyerBrut, 'number')}
       ${champ('Charges (€)', 'charges', u.id, u.charges, 'number')}

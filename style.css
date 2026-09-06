@@ -1,4 +1,4 @@
-/* style.css — v111 — 06/09/2026 */
+/* style.css — v119 — 06/09/2026 */
 :root {
   --ink: #5f5770;
   --ink-light: #756c8a;
@@ -879,6 +879,14 @@ input[id^="f-montantAssurance-"] {
   font-size: 12px; }
 .rentree-doublon-fait { margin: 8px 0 0; font-size: 12px; color: #12503d;
   background: #dfeedd; border-radius: 8px; padding: 8px 10px; }
+/* LE BLOC ACOMPTE FERME.
+   Pas d acompte tant que la ligne n est pas complete : le message dit ce
+   qui manque, sur le meme fond gris que les autres notes. */
+.rentree-acompte-ferme { background: #f4f1ea; border-left: 3px solid #c9c4bb;
+  border-radius: 0 6px 6px 0; padding: 9px 11px; margin: 8px 0 4px;
+  font-size: 12px; color: #55524b; line-height: 1.45; }
+.rentree-acompte-ferme strong { color: #2c2c2c; }
+
 /* LES EXEMPLES DU MODE D EMPLOI.
    Julien et Véronique n ont pas conçu l application : chaque règle est
    suivie d un cas concret, visuellement distinct du texte de la règle. */
@@ -887,3 +895,5 @@ input[id^="f-montantAssurance-"] {
   font-size: 13px; color: #4a4a4a; }
 .aide-rentree .ex strong { color: #2c2c2c; }
 .aide-rentree h3 { margin-top: 22px; }
+.rentree-cles { width: 100%; margin-top: 8px; padding: 12px; font-size: 13px;
+  font-weight: 600; background: #dce9f5; color: #1b3a52; border-color: #4a7fa8; }

@@ -1,4 +1,4 @@
-// rentree.js — v111 — 06/09/2026
+// rentree.js — v119 — 06/09/2026
 // Gestion Loyers — module RENTRÉE, entièrement séparé
 //
 // POURQUOI CE MODULE EXISTE
@@ -383,6 +383,74 @@ function totalAcomptes(l) {
     t + (a && a.montant != null ? Number(a.montant) : 0), 0);
 }
 
+/* L'unité a-t-elle une garantie ? C'est ce qui décide où va l'acompte. */
+function avecGarantieIci(immeubleId, designation) {
+  return montantsApplicables(immeubleId, designation).some(m => m.cle === 'garantie');
+}
+
+/* PAS D'ACOMPTE TANT QUE LA LIGNE N'EST PAS COMPLÈTE.
+
+   Règle unique, arrêtée le 06/09/2026, valable pour tout le monde —
+   déménageur comme nouveau locataire.
+
+   Elle remplace trois traitements particuliers qui divergeaient :
+
+     — un acompte pouvait être saisi AVANT le nom du remplaçant. Saisi là,
+       puis le nom déclaré déménagement, il était déduit sur le document de
+       remise des clés mais jamais porté dans l'unité. Le locataire lisait
+       « vos 200 € sont déduits » et l'application ne les connaissait pas ;
+     — le bloc était purement et simplement MASQUÉ pour un déménageur, alors
+       qu'un rattrapage de garantie existe réellement quand le loyer du
+       nouveau studio diffère ;
+     — un acompte saisi sur une unité sans garantie n'était porté nulle
+       part, et on ne l'apprenait qu'au moment de verser.
+
+   Un acompte se calcule sur les chiffres du nouveau bail. Tant qu'ils ne
+   sont pas là, il n'y a rien sur quoi le calculer. */
+/* UN MONTANT VALABLE : un nombre fini, positif ou nul.
+
+   Le contrôle testait `== null`. Or un champ mal saisi — « cinquante », un
+   caractère resté d'un copier-coller — donne NaN, qui n'est pas null : la
+   ligne passait pour complète, le bloc acompte s'ouvrait, et le document
+   affichait 0,00 € pour ce poste au lieu de refuser. Un montant faux et
+   silencieux dans une pièce remise au locataire. Constaté le 06/09/2026. */
+function montantValable(v) {
+  return v != null && Number.isFinite(Number(v)) && Number(v) >= 0;
+}
+
+function manquePourAcompte(immeubleId, unite, l) {
+  const m = [];
+  if (!l.locataireSuivant) m.push('le nom du remplaçant');
+  if (!l.debutBail) m.push('le début du bail');
+  montantsApplicables(immeubleId, unite.designation).forEach(x => {
+    if (!montantValable(l.montants[x.cle])) m.push(x.libelle);
+  });
+  return m;
+}
+
+/* UN ACOMPTE NÉGATIF N'EXISTE PAS.
+
+   Il était accepté tel quel : le document annonçait « Acompte versé
+   − -100,00 € » et un reste à payer SUPÉRIEUR au total, et la fusion
+   inscrivait une garantie encaissée négative. Constaté le 06/09/2026. */
+function acompteNegatif(l) {
+  return (l.acomptes || []).some(a => a && a.montant != null &&
+    (!Number.isFinite(Number(a.montant)) || Number(a.montant) < 0));
+}
+
+/* LE GARAGE NE REÇOIT JAMAIS PLUS D'UN MOIS D'AVANCE.
+
+   Il n'a pas de garantie : son acompte est une avance sur le loyer, et un
+   emplacement ne se paie pas plusieurs mois d'avance. Au-delà du loyer, le
+   montant est refusé — le champ passe en rouge et le versement est bloqué,
+   comme une adresse malformée. */
+function acompteTropGrand(immeubleId, unite, l) {
+  if (avecGarantieIci(immeubleId, unite.designation)) return false;
+  const loyer = l.montants.loyer;
+  if (loyer == null) return false;
+  return totalAcomptes(l) > Number(loyer);
+}
+
 /* ---- Ce qui manque ------------------------------------------------------
 
    Savoir d'un coup d'œil ce qui reste à faire avant la rentrée, locataire
@@ -551,7 +619,7 @@ function messageEstUneAlerte(message) {
      message annonce un succès pour les unes et un échec pour les autres,
      en nommant celles qui demandent une correction à la main. Il était
      classé comme une confirmation, et restait hors de vue. */
-  return /NON vers|impossible|non enregistr|Aucune|à vérifier|saisis |Indique |déjà été versée|place-toi|n'ont pas pu|ATTENTION|ne ressemble pas|figure déjà/i
+  return /NON vers|impossible|non enregistr|Aucune|à vérifier|saisis |Indique |déjà été versée|place-toi|n'ont pas pu|ATTENTION|ne ressemble pas|figure déjà|NON enregistré|Il manque|dépasse le loyer|n'est pas un montant valable|pas un\s+montant valable/i
     .test(String(message));
 }
 
@@ -916,13 +984,34 @@ function ligneHtmlRentree(immeubleId, unite) {
       `<p class="rentree-alerte-champ">Cette adresse ne ressemble pas à un
        courriel. Corrige-la avant de verser.</p>`}
 
-    ${demenage ? `<p class="rentree-note">Déménagement interne : aucun acompte,
-      la garantie du locataire le suit.</p>` : `
+    ${(() => {
+      /* LE BLOC N'EST PLUS MASQUÉ POUR UN DÉMÉNAGEUR : il est fermé pour
+         tout le monde tant que la ligne n'est pas complète, et ouvert pour
+         tout le monde ensuite. Une seule condition, pas de cas particulier. */
+      const manque = manquePourAcompte(immeubleId, unite, l);
+      const avecGar = avecGarantieIci(immeubleId, unite.designation);
+      const trop = acompteTropGrand(immeubleId, unite, l) || acompteNegatif(l);
+
+      if (manque.length) {
+        return `<p class="rentree-acompte-ferme"><strong>Acomptes</strong> —
+          à remplir d'abord : ${echapperR(manque.join(', '))}.${
+          totalAcomptes(l) ? `<br>Un acompte de ${totalAcomptes(l).toFixed(2)} €
+          est déjà inscrit sur cette ligne : complète ces champs pour le revoir.` : ''}</p>`;
+      }
+
+      return `
     <p class="rentree-sous-titre">Acomptes${
       l.acomptes.length ? ` — total ${totalAcomptes(l).toFixed(2)} €` : ''}</p>
+    ${demenage ? `<p class="rentree-note">Déménagement interne : cet acompte ne
+      peut concerner que la garantie — un rattrapage, quand celle du nouveau
+      bail dépasse celle qu'il apporte.</p>` : ''}
+    ${!avecGar ? `<p class="rentree-note">Pas de garantie sur cette unité :
+      l'acompte est une avance sur le loyer, et ne peut dépasser un mois
+      (${Number(l.montants.loyer).toFixed(2)} €).</p>` : ''}
     ${l.acomptes.map((a, i) => `<div class="rentree-champs">
       <label>montant
         <input type="number" step="0.01" inputmode="decimal"
+          class="${trop ? 'champ-faux' : ''}"
           value="${a.montant == null ? '' : a.montant}"
           onchange="changerAcompteRentree('${unite.id}', ${i}, 'montant', this.value)"></label>
       <label class="date">date
@@ -931,8 +1020,19 @@ function ligneHtmlRentree(immeubleId, unite) {
       <button class="btn-connexion mini retirer"
         onclick="retirerAcompteRentree('${unite.id}', ${i})">retirer</button>
     </div>`).join('')}
+    ${acompteNegatif(l) ? `<p class="rentree-alerte-champ">Un acompte n'est pas
+      un montant valable. Corrige-le avant de verser.</p>`
+      : trop ? `<p class="rentree-alerte-champ">Le total des acomptes
+      (${totalAcomptes(l).toFixed(2)} €) dépasse le loyer
+      (${Number(l.montants.loyer).toFixed(2)} €). Corrige-le avant de verser.</p>` : ''}
     <button class="btn-connexion mini ajouter"
-      onclick="ajouterAcompteRentree('${unite.id}')">+ acompte</button>`}` : ''}
+      onclick="ajouterAcompteRentree('${unite.id}')">+ acompte</button>`;
+    })()}` : ''}
+
+    ${!attendRemplacant && totalAcomptes(l) ? `<p class="rentree-alerte-champ">
+      Un acompte de ${totalAcomptes(l).toFixed(2)} € reste inscrit sur cette ligne.
+      Sous ce statut il ne sera porté nulle part : repasse en « départ » pour le
+      traiter, ou retire-le.</p>` : ''}
 
     <div class="rentree-cases">${cases}</div>
 
@@ -966,13 +1066,36 @@ function ligneHtmlRentree(immeubleId, unite) {
 
     ${pretAVerser ? `<button class="btn-connexion rentree-verser"
          onclick="verserUniteRentree('${unite.id}')">${libelleBouton}</button>` : ''}
+
+    ${l.statut === 'depart' && l.locataireSuivant
+      ? `<button class="btn-connexion rentree-cles"
+           onclick="documentClesRentree('${unite.id}')">Avant remise des clés</button>` : ''}
   </div>`;
 }
 
 /* ---- Les saisies -------------------------------------------------------- */
 
 function changerStatutRentree(uniteId, valeur) {
-  ligneRentree(uniteId).statut = valeur;
+  const l = ligneRentree(uniteId);
+  const avant = l.statut;
+  l.statut = valeur;
+
+  /* UN ACOMPTE NE DOIT PAS DEVENIR INVISIBLE.
+
+     Passer une ligne de « départ » à « reste » ou « inoccupé » masquait le
+     bloc acompte : les 200 € restaient dans le fichier, hors de vue, et la
+     fusion ne les portait nulle part puisqu'elle ne traite les acomptes que
+     lorsqu'il y a changement de locataire. Même famille que l'argent perdu
+     du déménageur. Constaté le 06/09/2026. */
+  if ((valeur === 'reste' || valeur === 'inoccupe') &&
+      avant !== valeur && totalAcomptes(l)) {
+    const t = toutesUnitesRentree().find(x => x.unite.id === uniteId);
+    return enregistrerRentree().then(() => dessinerVueRentree(
+      `${t ? t.unite.designation : 'Cette unité'} : ATTENTION — un acompte de ` +
+      `${totalAcomptes(l).toFixed(2)} € est inscrit sur cette ligne. Sous « ${
+        valeur === 'reste' ? 'le locataire reste' : 'inoccupé'} » il ne sera porté ` +
+      `nulle part. Il est conservé, mais rien ne l'appliquera.`));
+  }
   enregistrerRentree().then(() => dessinerVueRentree());
 }
 /* LE DÉMÉNAGEMENT SE CONSTATE À LA SAISIE DU NOM, PAS AU VERSEMENT.
@@ -1085,6 +1208,13 @@ function changerAcompteRentree(uniteId, index, champ, valeur) {
   if (!l.acomptes[index]) return;
   if (champ === 'montant') {
     const v = String(valeur).replace(',', '.').trim();
+    if (v !== '' && !montantValable(v)) {
+      l.acomptes[index].montant = null;
+      const t = toutesUnitesRentree().find(x => x.unite.id === uniteId);
+      return enregistrerRentree().then(() => dessinerVueRentree(
+        `${t ? t.unite.designation : 'Cette unité'} : « ${valeur} » n'est pas un ` +
+        `montant valable. L'acompte a été laissé vide.`));
+    }
     l.acomptes[index].montant = v === '' ? null : Number(v);
   } else {
     l.acomptes[index].date = valeur || null;
@@ -1117,8 +1247,43 @@ function retirerAcompteRentree(uniteId, index) {
 /* Les six montants du bail à venir. Un champ vide vaut « rien saisi », et
    non zéro : la distinction compte pour savoir ce qui reste à remplir. */
 function changerMontantRentree(uniteId, cle, valeur) {
+  const l = ligneRentree(uniteId);
+  const t = toutesUnitesRentree().find(x => x.unite.id === uniteId);
+  const ouvertAvant = t && !manquePourAcompte(t.immeubleId, t.unite, l).length;
+
   const v = String(valeur).replace(',', '.').trim();
-  ligneRentree(uniteId).montants[cle] = v === '' ? null : Number(v);
+
+  /* Une saisie qui n'est pas un nombre positif n'est pas enregistrée : mieux
+     vaut un champ vide, que la barrière voit, qu'un NaN qu'elle laisse
+     passer et qui ressort en 0,00 € sur le document. */
+  if (v !== '' && !montantValable(v)) {
+    l.montants[cle] = null;
+    return enregistrerRentree().then(() => dessinerVueRentree(
+      `${t ? t.unite.designation : 'Cette unité'} : « ${valeur} » n'est pas un ` +
+      `montant valable. Le champ a été laissé vide.`));
+  }
+  l.montants[cle] = v === '' ? null : Number(v);
+
+  const ouvertApres = t && !manquePourAcompte(t.immeubleId, t.unite, l).length;
+
+  /* UN MONTANT VIDÉ SOUS UN ACOMPTE DÉJÀ INSCRIT.
+
+     La barrière ne joue qu'à la saisie : rien n'empêche de vider un montant
+     ensuite. On ne supprime pas le paiement pour autant — on le dit. */
+  if (v === '' && totalAcomptes(l)) {
+    return enregistrerRentree().then(() => dessinerVueRentree(
+      `${t ? t.unite.designation : 'Cette unité'} : ATTENTION — un acompte de ` +
+      `${totalAcomptes(l).toFixed(2)} € est inscrit sur cette ligne et tu viens ` +
+      `de vider un montant. L'acompte est conservé, mais il ne sera plus ` +
+      `modifiable tant que la ligne n'est pas complète.`));
+  }
+
+  /* Le bloc acompte vient de s'ouvrir ou de se fermer : il faut redessiner.
+     Hors de ce cas on ne redessine pas, pour ne pas couper une saisie en
+     cours sur les montants suivants. */
+  if (ouvertAvant !== ouvertApres) {
+    return enregistrerRentree().then(() => dessinerVueRentree());
+  }
   enregistrerRentree();
 }
 function basculerControleRentree(uniteId, cle) {
@@ -1201,6 +1366,23 @@ async function verserUniteRentree(uniteId) {
   if (changeDeLocataire && !emailPlausible(l.email)) {
     return dessinerVueRentree(
       `${u.designation} : l'adresse « ${l.email} » ne ressemble pas à un courriel. Corrige-la.`);
+  }
+
+  /* PAS PLUS D'UN MOIS D'AVANCE SUR UNE UNITÉ SANS GARANTIE.
+
+     Le garage n'a qu'un loyer : son acompte est une avance sur le premier
+     mois, jamais davantage. Règle arrêtée le 06/09/2026. */
+  if (changeDeLocataire && acompteNegatif(l)) {
+    return dessinerVueRentree(
+      `${u.designation} : un acompte n'est pas un montant valable. Corrige-le ` +
+      `avant de verser — un acompte négatif inscrirait une garantie négative.`);
+  }
+
+  if (changeDeLocataire && acompteTropGrand(immeubleIdDe(uniteId), u, l)) {
+    return dessinerVueRentree(
+      `${u.designation} : l'acompte (${totalAcomptes(l).toFixed(2)} €) dépasse le ` +
+      `loyer (${Number(l.montants.loyer).toFixed(2)} €). Cette unité n'a pas de ` +
+      `garantie : l'avance ne peut pas excéder un mois.`);
   }
 
   /* ON PEUT VERSER PLUSIEURS FOIS, MAIS DANS LE MÊME MOIS.
@@ -1294,12 +1476,36 @@ async function verserUniteRentree(uniteId) {
        il annonçait 400 € qui n'étaient jamais écrits. Et un acompte saisi
        là où il n'y a pas de garantie mérite d'être signalé, plutôt
        qu'ignoré en silence. */
+    /* LA CONFIRMATION DIT LE MONTANT RÉELLEMENT ÉCRIT, ET OÙ.
+
+       Elle annonçait le seul total des acomptes. Pour un déménageur elle
+       affichait donc 200 € là où le code en écrivait 400 : ni l'un ni
+       l'autre n'était la somme réelle, qui est leur addition. Et sur une
+       unité sans garantie elle prévenait que l'acompte ne serait pas
+       porté — il l'est désormais, sur le premier mois de loyer. */
     (changeDeLocataire && totalAcomptes(l)
       ? (avecGarantie
-          ? `Garantie encaissée : ${totalAcomptes(l).toFixed(2)} € (total des acomptes).\n`
-          : `ATTENTION : cette unité n'a pas de garantie. Les ${
-              totalAcomptes(l).toFixed(2)} € d'acompte saisis ne seront pas portés.\n`)
+          ? (() => {
+              const ap = demenagementPrevu
+                ? (l.apporte || (l.doublon && l.doublon.releve) || null) : null;
+              const dejaG = (ap && Number(ap.garantieEncaissee)) || 0;
+              return dejaG
+                ? `Garantie encaissée : ${dejaG.toFixed(2)} € apportés + ${
+                    totalAcomptes(l).toFixed(2)} € d'acomptes = ${
+                    (dejaG + totalAcomptes(l)).toFixed(2)} €.\n`
+                : `Garantie encaissée : ${totalAcomptes(l).toFixed(2)} € (total des acomptes).\n`;
+            })()
+          : `Loyers versés : ${totalAcomptes(l).toFixed(2)} € — cette unité n'a pas de ` +
+            `garantie, l'acompte est porté sur le premier mois.\n`)
       : '') +
+    /* Le report sur les loyers versés n'a lieu qu'au PREMIER versement :
+       aux suivants, l'unité porte des paiements réels du nouveau locataire
+       qu'on ne peut pas écraser. Si l'acompte a bougé depuis, on le dit. */
+    (changeDeLocataire && !avecGarantie && !premierVersement &&
+     totalAcomptes(l) !== (l.acomptesPortes || 0)
+      ? `ATTENTION : l'acompte a changé depuis le premier versement (${
+          (l.acomptesPortes || 0).toFixed(2)} € portés). Les loyers versés du mois ` +
+        `ne seront pas retouchés — corrige-les à la main dans l'écran du mois.\n` : '') +
     /* DEUX PHRASES, car les deux règles ne sont pas la même : l'argent
        suit la personne, les textes suivent l'unité. Une seule phrase était
        fausse pour l'une ou pour l'autre dans le cas du déménagement. */
@@ -1420,8 +1626,24 @@ async function verserUniteRentree(uniteId) {
       /* On conserve le relevé retrouvé : la ligne l'aura pour ses
          versements suivants et pour l'avertissement. */
       if (!l.apporte) l.apporte = apporte;
-      u.garantieEncaissee = apporte.garantieEncaissee;
-      u.garantieDatePaiement = apporte.garantieDatePaiement;
+      /* LA GARANTIE APPORTÉE ET LE RATTRAPAGE S'ADDITIONNENT.
+
+         La garantie apportée était posée SEULE, et les acomptes de la ligne
+         ignorés. Un déménageur ne verse pas d'acompte de garantie, mais il
+         verse parfois un RATTRAPAGE : le loyer augmente chaque année, donc
+         la garantie du nouveau bail dépasse celle qu'il apporte.
+
+         Ces acomptes-là étaient déduits sur le document de remise des clés
+         et n'arrivaient nulle part. Le locataire lisait « vos 200 € sont
+         déduits » et l'application ne les connaissait pas. Corrigé le
+         06/09/2026, en même temps que la règle d'ouverture du bloc.
+
+         Sur une unité sans garantie, on ne pose rien ici : l'acompte part
+         sur le premier mois de loyer, plus bas. */
+      if (avecGarantie) {
+        u.garantieEncaissee = Number(apporte.garantieEncaissee || 0) + total;
+        u.garantieDatePaiement = dernierAcompte || apporte.garantieDatePaiement;
+      }
       u.assuranceEncaissee = apporte.assuranceEncaissee;
       u.assuranceDatePaiement = apporte.assuranceDatePaiement;
       if (!l.email && apporte.email) u.email = apporte.email;
@@ -1463,6 +1685,26 @@ async function verserUniteRentree(uniteId) {
       u.montantsVerses = 0;
       u.dateVersement = null;      /* P7 : pas de date sans paiement */
     }
+  }
+
+  /* L'ACOMPTE D'UNE UNITÉ SANS GARANTIE VA SUR LE PREMIER MOIS DE LOYER.
+
+     Le garage n'a qu'un loyer : son acompte est une avance sur le premier
+     mois, plafonnée à un mois — le contrôle est fait plus haut. Il était
+     jusqu'ici saisi puis porté nulle part.
+
+     APRÈS la remise à zéro ci-dessus, sinon il serait effacé aussitôt.
+
+     AU PREMIER VERSEMENT SEULEMENT : aux suivants, l'unité porte les
+     paiements réels du nouveau locataire, qu'on ne peut pas écraser. On
+     mémorise ce qui a été porté pour signaler une divergence ultérieure. */
+  if (changeDeLocataire && !avecGarantie && premierVersement && total) {
+    u.montantsVerses = total;
+    u.dateVersement = dernierAcompte;
+    /* La MÉMOIRE de ce report n'est posée qu'une fois la sauvegarde
+       confirmée, avec le reste des marques de versement — voir plus bas.
+       Posée ici, elle survivait à un échec : l'unité était rétablie mais la
+       ligne prétendait avoir porté l'acompte. */
   }
 
   /* LES TEXTES SUIVENT L'UNITÉ, L'ARGENT SUIT LA PERSONNE.
@@ -1532,6 +1774,12 @@ async function verserUniteRentree(uniteId) {
   l.verseeLe = new Date().toISOString();
   l.verseeVers = moisAffiche;
   l.versePar = (typeof obtenirMonPrenom === 'function') ? obtenirMonPrenom() : '';
+  /* Ce qui a été porté sur les loyers versés, pour signaler plus tard un
+     acompte qui aurait bougé depuis. Avec les autres marques : rien n'est
+     noté tant que la sauvegarde n'est pas confirmée. */
+  if (changeDeLocataire && !avecGarantie && premierVersement && total) {
+    l.acomptesPortes = total;
+  }
   await enregistrerRentree();
   /* Pas de message en tête pour une réussite : la ligne elle-même porte
      désormais « Versée dans … », visible à l'endroit où l'on travaille. */
@@ -1650,6 +1898,9 @@ async function annulerVersementRentree(uniteId) {
   delete l.instantane;
   delete l.demenagement;
   delete l.apporte;
+  /* Le report de l'acompte sur les loyers versés est défait avec le reste :
+     un versement refait doit pouvoir le reposer. */
+  delete l.acomptesPortes;
   /* Le choix du doublon se rouvre aussi : l'unité redevient modifiable, et
      la situation a pu changer entre-temps. */
   if (l.doublon) { l.doublon.choix = null; delete l.homonyme; }
@@ -1696,11 +1947,12 @@ async function remiseAZeroRentree() {
                      versePar: l.versePar, instantane: l.instantane,
                      demenagement: l.demenagement, apporte: l.apporte,
                      choixDoublon: l.doublon ? l.doublon.choix : undefined,
-                     homonyme: l.homonyme });
+                     homonyme: l.homonyme, acomptesPortes: l.acomptesPortes });
     l.verseeLe = null; l.verseeVers = null; l.versePar = null;
     delete l.instantane;
     delete l.demenagement;
     delete l.apporte;
+    delete l.acomptesPortes;
     if (l.doublon) { l.doublon.choix = null; delete l.homonyme; }
   });
 
@@ -1716,7 +1968,8 @@ async function remiseAZeroRentree() {
       const m = memoire.get(l);
       Object.assign(l, { verseeLe: m.verseeLe, verseeVers: m.verseeVers,
         versePar: m.versePar, instantane: m.instantane,
-        demenagement: m.demenagement, apporte: m.apporte, homonyme: m.homonyme });
+        demenagement: m.demenagement, apporte: m.apporte, homonyme: m.homonyme,
+        acomptesPortes: m.acomptesPortes });
       if (l.doublon) l.doublon.choix = m.choixDoublon;
     });
     if (typeof sauvegarderLocal === 'function') sauvegarderLocal();
@@ -1782,6 +2035,374 @@ async function ouvrirVueManques() {
   zone.style.display = 'block';
   masquerFondRentree(true);
   window.scrollTo(0, 0);
+}
+
+/* ---- Le document de remise des clés ------------------------------------
+
+   Un fichier HTML portant l'extension .doc : Word l'ouvre sans difficulté,
+   et l'application n'a besoin d'aucune bibliothèque extérieure. Elle ne
+   dépend aujourd'hui que de Microsoft, et je n'y ajoute pas de script tiers.
+
+   Il est téléchargé sur l'appareil — pour la pièce jointe d'Envoi
+   Décomptes — ET déposé dans OneDrive, parce qu'une pièce communiquée à un
+   locataire doit rester ce qu'elle était le jour de l'envoi. */
+
+const CLES_DOSSIER = 'GESTION-LOYERS/rentree/cles';
+
+/* LES TROIS COMPTES BANCAIRES, selon le propriétaire de l'immeuble. */
+const COMPTES = {
+  havre:   { iban: 'BE73 0018 2894 1060', titulaire: 'SAMADHI SA' },
+  egmont:  { iban: 'BE03 0015 4693 5384', titulaire: 'GERARD JULIEN' },
+  defaut:  { iban: 'BE45 0014 6988 8789', titulaire: 'GERARD JEAN-MARC' },
+};
+
+function compteDe(immeubleId) {
+  const id = String(immeubleId || '').toLowerCase();
+  if (id.includes('havre')) return COMPTES.havre;
+  if (id.includes('egmont')) return COMPTES.egmont;
+  return COMPTES.defaut;
+}
+
+/* CE QUI DOIT ÊTRE PRÉSENT POUR ÉCRIRE AU LOCATAIRE.
+
+   Le document annonce des montants à verser sur un compte : incomplet, il
+   ferait payer une somme fausse. Mieux vaut refuser et dire quoi. */
+function manquePourLesCles(immeubleId, unite, l) {
+  const m = [];
+  if (!l.locataireSuivant) m.push('le nom du locataire');
+  if (!l.email) m.push('son courriel');
+  else if (!emailPlausible(l.email)) m.push('un courriel valable');
+  if (!l.debutBail) m.push('la date de début du bail');
+  if (doublonEnAttente(l)) m.push('la réponse au nom en double');
+  montantsApplicables(immeubleId, unite.designation).forEach(x => {
+    if (l.montants[x.cle] == null) m.push('le montant : ' + x.libelle);
+  });
+
+  /* UN DÉMÉNAGEMENT SANS RELEVÉ NE PEUT RIEN DÉDUIRE.
+
+     Une ligne écrite avant les trois réponses au doublon n'a ni décision ni
+     relevé : le document reconnaissait le déménagement mais ne déduisait ni
+     la garantie ni l'assurance apportées. Marc recevait une demande de
+     1 400 € au lieu de 1 000. Constaté le 06/09/2026.
+
+     Retaper le nom sur la ligne reconstitue le relevé. */
+  if (estUnDemenagement(l, unite.id) && l.statut !== 'reste' &&
+      !(l.apporte || (l.doublon && l.doublon.releve))) {
+    m.push('le relevé de ce que le locataire apporte — retape son nom sur la ligne');
+  }
+
+  /* Un acompte qui bloque le versement bloque aussi le document : il y
+     figurerait en déduction d'une somme qui ne sera jamais encaissée. */
+  if (acompteNegatif(l)) {
+    m.push('un acompte qui soit un montant valable');
+  }
+  if (acompteTropGrand(immeubleId, unite, l)) {
+    m.push(`un acompte au plus égal au loyer (${
+      totalAcomptes(l).toFixed(2)} € pour un loyer de ${
+      Number(l.montants.loyer).toFixed(2)} €)`);
+  }
+  return m;
+}
+
+function eur(n) {
+  return Number(n || 0).toLocaleString('fr-BE',
+    { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
+}
+
+function dateFr(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  return isNaN(d.getTime()) ? iso : d.toLocaleDateString('fr-BE');
+}
+
+/* LE NOM DU FICHIER : immeuble, unité, locataire.
+
+   Trois pièges rencontrés en simulation le 06/09/2026 :
+
+     — une désignation sans chiffre — « RDC NIMY », « APPART BICHE » — était
+       tronquée à six caractères et donnait « RDC-NI » ;
+     — un nom composé — « VAN DER BERG », « DE SMET » — perdait ses premiers
+       mots, dont il ne restait que « BERG » ;
+     — l'immeuble figurait deux fois quand la désignation le contenait déjà :
+       « NIMY-RDC-NIMY ».
+
+   On garde donc la désignation entière, débarrassée du nom de l'immeuble
+   qu'elle répète, et le nom complet du locataire. */
+/* LA DÉSIGNATION SANS LE NOM DE L'IMMEUBLE QU'ELLE RÉPÈTE.
+
+   « RDC NIMY » dans l'immeuble NIMY donne « RDC ». Sert au nom de fichier
+   et à la communication de virement, qui avaient chacun leur version. */
+function uniteSansImmeuble(immeubleNom, designation) {
+  let d = String(designation || '').trim();
+  String(immeubleNom || '').split(/\s+/).forEach(mot => {
+    const m = mot.replace(/[^A-Za-zÀ-ÿ0-9]/g, '');
+    if (m.length > 2) d = d.replace(new RegExp('\\b' + m + '\\b', 'gi'), '');
+  });
+  return d.replace(/\s+/g, ' ').trim() || String(designation || '').trim();
+}
+
+function nomFichierCles(immeubleNom, unite, nom) {
+  const propre = (t) => String(t || '').normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '').replace(/[^A-Za-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '').toUpperCase();
+
+  const im = propre(immeubleNom);
+  /* La désignation porte souvent le nom de l'immeuble : on l'ôte pour ne pas
+     l'écrire deux fois. */
+  let u = propre(unite.designation);
+  im.split('-').forEach(mot => {
+    if (mot.length > 2) u = u.replace(new RegExp('-?' + mot + '(?=-|$)', 'g'), '');
+  });
+  u = u.replace(/^-+|-+$/g, '').replace(/-+/g, '-') || 'UNITE';
+
+  return `${im}-${u}-${propre(nom)}.doc`;
+}
+
+/* LE DOCUMENT LUI-MÊME.
+
+   Trois blocs, dans l'ordre où le locataire se pose les questions : ce
+   qu'il paiera chaque mois, ce qu'il doit avant les clés, comment payer.
+
+   AUCUNE EXPLICATION DU CALCUL DES CHARGES : le détail figure dans
+   l'avenant au bail, et le répéter ici l'exposerait à diverger. */
+function documentCles(immeubleId, immeubleNom, unite, l) {
+  const mts = montantsApplicables(immeubleId, unite.designation);
+  const val = (cle) => {
+    const m = mts.find(x => x.cle === cle);
+    return m && l.montants[cle] != null ? Number(l.montants[cle]) : null;
+  };
+
+  const loyer = val('loyer'), charges = val('charges');
+  const poubelles = val('poubelles'), wifi = val('wifi');
+  const assurance = val('assurance'), garantie = val('garantie');
+
+  const loyerCC = (loyer || 0) + (charges || 0) + (poubelles || 0) + (wifi || 0);
+  const total = (garantie || 0) + loyerCC + (assurance || 0);
+
+  /* CE QUI A DÉJÀ ÉTÉ VERSÉ.
+
+     Les acomptes, bien sûr. Mais aussi, POUR UN DÉMÉNAGEMENT INTERNE, la
+     garantie et l'assurance que la personne a payées dans son ancien studio
+     et qui la suivent.
+
+     Sans cette déduction, on réclamait à Marc 1 475 € en incluant une
+     garantie de 840 € — alors qu'il en avait déjà versé 400 qui lui sont
+     transférées. On lui faisait payer deux fois. Constaté en simulation le
+     06/09/2026. */
+  const demenage = estUnDemenagement(l, unite.id) && l.statut !== 'reste';
+  const apporte = demenage
+    ? (l.apporte || (l.doublon && l.doublon.releve) || null)
+    : null;
+
+  const dejaGarantie = apporte && apporte.garantieEncaissee || 0;
+  const dejaAssurance = apporte && apporte.assuranceEncaissee || 0;
+  const verse = totalAcomptes(l) + dejaGarantie + dejaAssurance;
+
+  /* UN RESTE NÉGATIF SE DIT AUTREMENT.
+
+     Si les acomptes dépassent le dû — ou si la garantie transférée d'un
+     déménagement couvre plus que le total — « Reste à payer −270,00 € »
+     n'a pas de sens. On annonce alors un trop-perçu, à rembourser.
+
+     Ce commentaire était écrit en commentaire HTML DANS le document : il
+     partait chez le locataire avec la pièce. Ramené dans le code le
+     06/09/2026. */
+  const reste = total - verse;
+
+  const compte = compteDe(immeubleId);
+  /* LA COMMUNICATION DOIT DÉSIGNER L'UNITÉ.
+
+     Elle ne gardait que les chiffres de la désignation. « RDC NIMY »,
+     « APPART RDC », « GARAGE » n'en ont pas : la communication devenait
+     « NIMY  — MARC », double espace compris, sans dire quelle unité.
+     Constaté le 06/09/2026. À défaut de chiffre, on garde la désignation,
+     débarrassée du nom de l'immeuble qu'elle répète. */
+  const numero = (unite.designation.match(/\d+/) || [''])[0]
+    || uniteSansImmeuble(immeubleNom, unite.designation);
+  const comm = `${immeubleNom} ${numero} — ${l.locataireSuivant}`
+    .replace(/\s+/g, ' ').trim().toUpperCase();
+
+  const ligne = (lib, montant, gras) => montant == null ? '' :
+    `<tr><td style="padding:4px 0;${gras ? 'font-weight:bold' : ''}">${lib}</td>
+     <td align="right" style="padding:4px 0;${gras ? 'font-weight:bold' : ''}">${eur(montant)}</td></tr>`;
+
+  const finBail = (() => {
+    const d = new Date(l.debutBail);
+    if (isNaN(d.getTime())) return '';
+    d.setFullYear(d.getFullYear() + 1); d.setDate(d.getDate() - 1);
+    return dateFr(d.toISOString().slice(0, 10));
+  })();
+
+  return `<html xmlns:o="urn:schemas-microsoft-com:office:office"
+    xmlns:w="urn:schemas-microsoft-com:office:word"><head>
+    <meta charset="utf-8"><title>Remise des clés</title>
+    <style>
+      body { font-family: Calibri, Arial, sans-serif; font-size: 11pt; color: #1a1a1a; }
+      .entete { font-size: 8pt; letter-spacing: 1pt; color: #7a7a7a;
+        text-transform: uppercase; }
+      h1 { font-size: 16pt; color: #1B3A52; margin: 4pt 0 14pt; }
+      .bandeau { background: #DCE9F5; border-left: 4pt solid #4A7FA8;
+        padding: 8pt 10pt; margin-bottom: 12pt; }
+      .bandeau .u { font-size: 13pt; font-weight: bold; color: #1B3A52; }
+      .bandeau .q { font-size: 10pt; color: #2F5A78; }
+      .titre { font-size: 8pt; letter-spacing: 1pt; color: #7a7a7a;
+        text-transform: uppercase; margin: 12pt 0 4pt; }
+      table { width: 100%; border-collapse: collapse; }
+      .sep td { border-top: 0.5pt solid #c9c4bb; }
+      .reste { background: #E4EFDC; border-left: 4pt solid #6B9455;
+        padding: 10pt; margin: 10pt 0 14pt; }
+      .paiement { background: #F4F1EA; padding: 9pt 10pt; }
+      .pied { font-size: 8pt; color: #7a7a7a; margin-top: 14pt; }
+    </style></head><body>
+
+    <p class="entete">${echapperR(compte.titulaire)} — Gestion locative</p>
+    <h1>Montant à verser avant la remise des clés</h1>
+
+    <div class="bandeau">
+      <div class="u">${echapperR(unite.designation)}</div>
+      <div class="q">${echapperR(l.locataireSuivant)} · bail du ${
+        dateFr(l.debutBail)}${finBail ? ' au ' + finBail : ''}</div>
+    </div>
+
+    <p class="titre">${charges != null || poubelles != null || wifi != null
+      ? 'Votre loyer mensuel' : 'Votre loyer'}</p>
+    <table>
+      ${ligne('Loyer', loyer)}
+      ${ligne('Provision de charges', charges)}
+      ${ligne('Poubelles', poubelles)}
+      ${ligne('Wifi', wifi)}
+      ${charges != null || poubelles != null || wifi != null
+        ? `<tr class="sep"><td style="padding:6pt 0;font-weight:bold">Loyer charges comprises</td>
+           <td align="right" style="padding:6pt 0;font-weight:bold">${eur(loyerCC)}</td></tr>`
+        : ''}
+    </table>
+
+    <p class="titre">À verser avant la remise des clés</p>
+    <table>
+      ${ligne('Garantie locative', garantie)}
+      ${ligne(charges != null || poubelles != null || wifi != null
+        ? 'Premier mois de loyer, charges comprises'
+        : 'Premier mois de loyer', loyerCC)}
+      ${ligne('Assurance', assurance)}
+      <tr class="sep"><td style="padding:6pt 0">Total</td>
+        <td align="right" style="padding:6pt 0">${eur(total)}</td></tr>
+      ${(l.acomptes || []).filter(a => a.montant).map(a =>
+        `<tr><td style="padding:4px 0;color:#1F7A4D">Acompte versé${
+          a.date ? ' le ' + dateFr(a.date) : ''}</td>
+         <td align="right" style="padding:4px 0;color:#1F7A4D">− ${eur(a.montant)}</td></tr>`).join('')}
+      ${dejaGarantie ? `<tr><td style="padding:4px 0;color:#1F7A4D">Garantie déjà versée${
+        apporte.venantDe ? ' pour ' + echapperR(apporte.venantDe) : ''}</td>
+        <td align="right" style="padding:4px 0;color:#1F7A4D">− ${eur(dejaGarantie)}</td></tr>` : ''}
+      ${dejaAssurance ? `<tr><td style="padding:4px 0;color:#1F7A4D">Assurance déjà payée</td>
+        <td align="right" style="padding:4px 0;color:#1F7A4D">− ${eur(dejaAssurance)}</td></tr>` : ''}
+    </table>
+
+    <div class="reste" style="${reste < 0 ? 'background:#FBF3E0;border-left-color:#C8891F' : ''}">
+      <table><tr>
+        <td style="font-size:12pt;font-weight:bold;color:${
+          reste < 0 ? '#6B4E11' : '#2E4522'}">${
+          reste > 0 ? 'Reste à payer' : reste < 0 ? 'Trop-perçu, à vous rembourser'
+                                                 : 'Rien à verser — tout est réglé'}</td>
+        <td align="right" style="font-size:16pt;font-weight:bold;color:${
+          reste < 0 ? '#6B4E11' : '#2E4522'}">${eur(Math.abs(reste))}</td>
+      </tr></table>
+    </div>
+
+    ${demenage ? `<p style="font-size:10pt;color:#4a4a4a;margin:0 0 10pt">
+      Vous changez de logement au sein du même parc : la garantie et
+      l'assurance déjà versées vous suivent et sont déduites ci-dessus.</p>` : ''}
+
+    <div class="paiement">
+      <p style="margin:0 0 4pt;font-weight:bold">Comment payer</p>
+      <p style="margin:0">Par virement sur le compte <b>${echapperR(compte.iban)}</b>
+      au nom de <b>${echapperR(compte.titulaire)}</b>, avec la communication
+      <b>« ${echapperR(comm)} »</b>.</p>
+      <p style="margin:6pt 0 0">${reste > 0
+        ? `<b>La totalité doit être réglée avant la remise des clés.</b> `
+        : `<b>Il n'y a rien à verser avant la remise des clés.</b> `
+        }Celles-ci vous seront remises contre signature de l'état des lieux
+      d'entrée.</p>
+    </div>
+
+    <p class="pied">Le détail du calcul des charges figure dans l'avenant à
+    votre bail. Document établi le ${dateFr(new Date().toISOString())}.</p>
+
+    </body></html>`;
+}
+
+/* Le bouton : contrôle, produit, télécharge, dépose, et dit où. */
+async function documentClesRentree(uniteId) {
+  const t = toutesUnitesRentree().find(x => x.unite.id === uniteId);
+  if (!t) return;
+  const l = ligneRentree(uniteId);
+
+  const manque = manquePourLesCles(t.immeubleId, t.unite, l);
+  if (manque.length) {
+    return dessinerVueRentree(
+      `${t.unite.designation} : impossible d'établir le document. Il manque ` +
+      manque.join(', ') + '.');
+  }
+
+  const contenu = documentCles(t.immeubleId, t.immeubleNom, t.unite, l);
+  const nom = nomFichierCles(t.immeubleNom, t.unite, l.locataireSuivant);
+
+  /* LES DEUX COPIES DOIVENT ÊTRE LE MÊME FICHIER.
+
+     Le fichier téléchargé portait la marque d'ordre des octets, celui
+     déposé dans OneDrive non : Word pouvait afficher les accents autrement
+     dans la pièce archivée que dans celle envoyée. Une pièce communiquée à
+     un locataire doit rester ce qu'elle était. Corrigé le 06/09/2026. */
+  const fichier = '\ufeff' + contenu;
+
+  /* 1. Sur l'appareil, pour la pièce jointe. */
+  try {
+    const blob = new Blob([fichier], { type: 'application/msword' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = nom;
+    /* L'ANCRE EST POSÉE DANS LA PAGE, ET L'ADRESSE LIBÉRÉE APRÈS COUP.
+
+       Elle était révoquée dans la foulée du clic, sur une balise jamais
+       insérée : le téléchargement pouvait être invalidé avant d'avoir
+       commencé. */
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => {
+      URL.revokeObjectURL(url);
+      if (a.parentNode) a.parentNode.removeChild(a);
+    }, 2000);
+  } catch (e) { /* le dépôt OneDrive reste la voie sûre */ }
+
+  /* 2. Dans OneDrive, pour le retrouver des mois plus tard.
+
+     ecrireFichierDansDossier REND UNE RÉPONSE, elle ne lève pas d'erreur :
+     un refus de Microsoft — droits, quota, jeton expiré — passait sous le
+     try/catch sans rien dire, et le message « Document enregistré »
+     s'affichait pour un fichier qui n'existait pas. Même famille que
+     l'échec silencieux de sauvegarde. Corrigé le 06/09/2026.
+
+     On regarde donc la réponse. */
+  const chemin = `${CLES_DOSSIER}-${donneesRentree.annee}`;
+  try {
+    const ref = await resoudreRefParChemin(chemin, true);
+    if (!ref) throw new Error('dossier introuvable');
+    const res = await ecrireFichierDansDossier(ref, nom, fichier,
+      { headers: { 'Content-Type': 'application/msword' } });
+    if (!res || !res.ok) {
+      throw new Error(res && typeof detailErreur === 'function'
+        ? await detailErreur(res) : 'refus de Microsoft');
+    }
+  } catch (e) {
+    return dessinerVueRentree(
+      `${nom} : téléchargé sur ton téléphone, mais NON enregistré dans OneDrive — ` +
+      String((e && e.message) || e) +
+      `. Le fichier de ton téléphone reste valable pour l'envoi.`);
+  }
+
+  dessinerVueRentree(
+    `Document enregistré — ${chemin.replace(/\//g, ' / ')} / ${nom}\n` +
+    `Il a aussi été téléchargé sur ton téléphone.`);
 }
 
 /* ---- Mode d'emploi -----------------------------------------------------
@@ -1860,14 +2481,47 @@ function ouvrirAideRentree() {
       l'arobase.</p>
 
       <h3>Les acomptes</h3>
-      <p>Un locataire verse parfois en deux ou trois fois. Le bouton
-      « + acompte » ajoute une ligne, avec son montant et sa date. Le
-      <strong>total</strong> s'affiche à côté du titre.</p>
-      <p>C'est ce total qui deviendra la garantie encaissée au moment du
-      versement.</p>
+      <p><strong>Le bloc reste fermé tant que la ligne n'est pas
+      complète.</strong> Il faut le nom du remplaçant, le début du bail et
+      tous les montants qui s'appliquent à l'unité. Le message te dit
+      lesquels manquent. Un acompte se calcule sur les chiffres du nouveau
+      bail : tant qu'ils ne sont pas là, il n'y a rien sur quoi le
+      calculer.</p>
+      <p class="ex"><strong>Exemple.</strong> Un acompte de 200 € arrive en
+      mars pour le studio 1, mais tu n'as pas encore arrêté le loyer. Le bloc
+      affiche « à remplir d'abord : loyer, charges, garantie ». Tu saisis les
+      montants, le bloc s'ouvre, tu inscris les 200 €.</p>
+      <p>Ensuite, « + acompte » ajoute autant de lignes qu'il en vient, avec
+      leur date. Le <strong>total</strong> s'affiche à côté du titre.</p>
       <p class="ex"><strong>Exemple.</strong> Olivia verse 200 € le 5 avril,
       puis 200 € le 12 juin. Tu ajoutes deux lignes. Le titre affiche
       « Acomptes — total 400,00 € ».</p>
+
+      <h3>Où va l'acompte</h3>
+      <p>Trois cas, selon l'unité et le locataire :</p>
+      <p><strong>Nouveau locataire</strong> — le total devient la garantie
+      encaissée.<br>
+      <strong>Déménagement</strong> — la garantie qu'il apporte
+      <strong>et</strong> ses acomptes s'additionnent. Un déménageur ne verse
+      pas de garantie, mais parfois un rattrapage : le loyer augmente chaque
+      année, donc la garantie du nouveau bail est souvent plus élevée que
+      celle qu'il a versée ailleurs.<br>
+      <strong>Unité sans garantie — le garage</strong> — l'acompte est une
+      avance sur le loyer. Il est porté sur les loyers versés du mois, et ne
+      peut pas dépasser un mois : au-delà, le champ passe en rouge et le
+      versement est refusé.</p>
+      <p class="ex"><strong>Exemple — rattrapage.</strong> Marc apporte 400 €
+      du studio 7. La garantie du studio 1 est de 840 €. Il verse 440 € de
+      rattrapage : l'application inscrira 840 € de garantie encaissée, et la
+      confirmation te l'annoncera ainsi — « 400,00 € apportés + 440,00 €
+      d'acomptes = 840,00 € ».</p>
+      <p class="ex"><strong>Exemple — garage.</strong> Le garage de Biche est
+      à 60 €. Un acompte de 60 € est accepté et porté sur le premier mois.
+      Un acompte de 200 € est refusé.</p>
+      <p>Si tu vides un montant sur une ligne qui porte déjà un acompte,
+      l'application te le signale. <strong>Elle n'efface jamais un
+      paiement</strong> : l'acompte reste, mais le bloc se referme jusqu'à ce
+      que la ligne soit de nouveau complète.</p>
 
       <h3>Le début du bail</h3>
       <p>Une date à part, qui n'a rien à voir avec les acomptes : ceux-ci sont
@@ -1902,8 +2556,9 @@ function ouvrirAideRentree() {
       cherche dans deux endroits : les locataires en place, et les futurs
       locataires déjà inscrits sur une autre ligne.</p>
       <p><strong>Déménagement</strong> — la même personne change de studio. Sa
-      garantie, son assurance payée et son adresse le suivent ; aucun acompte
-      ne lui est réclamé.<br>
+      garantie, son assurance payée et son adresse le suivent ; on ne lui
+      réclame pas de garantie, seulement un rattrapage si celle du nouveau
+      bail est plus élevée.<br>
       <strong>Homonyme</strong> — deux personnes différentes qui portent le même
       nom. Chacune sa garantie, son acompte, son adresse.<br>
       <strong>Erreur de saisie</strong> — le nom est effacé, à corriger.</p>
@@ -1913,7 +2568,8 @@ function ouvrirAideRentree() {
       le studio 7 de Nimy, où il a versé 400 € de garantie. Il veut le studio 1,
       plus grand. Tu l'inscris comme remplaçant au studio 1 : l'application dit
       « Ce nom figure déjà à STUDIO 7 NIMY ». Tu réponds « Déménagement » : ses
-      400 € et son adresse le suivront, et tu ne lui réclames pas d'acompte.</p>
+      400 € et son adresse le suivront. S'il ne reste rien à rattraper, tu
+      n'inscris aucun acompte.</p>
       <p class="ex"><strong>Exemple — erreur.</strong> Tu inscris Julie Martin
       au studio 3, puis, distrait, au studio 8. L'application signale le
       doublon. Tu réponds « Erreur de saisie » sur la seconde ligne, le nom
@@ -1997,6 +2653,40 @@ function ouvrirAideRentree() {
       <p class="ex"><strong>Exemple.</strong> Le bouton affiche « Ce qui
       manque — 12 locataires, 34 documents ». En touchant, tu vois
       « Olivia Megali — STUDIO 6 BICHE : Samadhi, EDLE ». Le reste est fait.</p>
+
+      <h3>Le document de remise des clés</h3>
+      <p>Le bouton <strong>« Avant remise des clés »</strong>, au bas de chaque
+      ligne en départ, établit le document à envoyer au futur locataire : son
+      loyer mensuel, ce qu'il doit verser avant les clés, les acomptes déjà
+      versés déduits, et le compte sur lequel payer.</p>
+      <p>Il est <strong>téléchargé sur ton téléphone</strong> — pour le joindre
+      au courriel depuis Envoi Décomptes — et <strong>déposé dans OneDrive</strong>,
+      pour le retrouver des mois plus tard tel qu'il a été envoyé. Le chemin
+      complet s'affiche après l'enregistrement.</p>
+      <p>Le compte bancaire dépend de l'immeuble : Havré va sur celui de
+      Samadhi, Egmont sur celui de Julien, les cinq autres sur celui de
+      Jean-Marc.</p>
+      <p><strong>Si une donnée manque</strong> — le nom, le courriel, la date de
+      bail, un montant — le document n'est pas établi et l'application dit ce
+      qui bloque. Un document incomplet ferait payer une somme fausse.</p>
+      <p class="ex"><strong>Exemple.</strong> Sur le studio 6 de Biche, tu
+      touches le bouton. Le fichier « BICHE-STUDIO-6-OLIVIA-MEGALI.doc » est
+      téléchargé, et le message dit : « Document enregistré — GESTION-LOYERS /
+      rentree / cles-2027 / BICHE-STUDIO-6-OLIVIA-MEGALI.doc ». Tu l'ouvres
+      ensuite dans Envoi Décomptes comme pièce jointe.</p>
+      <p class="ex"><strong>Le garage.</strong> Il n'a qu'un loyer : le document
+      ne parle ni de charges, ni de garantie, ni d'assurance. Le locataire ne
+      verse que le premier mois.</p>
+      <p class="ex"><strong>Un déménagement.</strong> Marc quitte le studio 7
+      pour le studio 1. Sa garantie de 400 € et son assurance de 85 € le
+      suivent : le document les <strong>déduit</strong> du total et le dit.
+      Sans cela, on lui ferait payer deux fois.</p>
+      <p class="ex"><strong>Si le locataire a trop versé</strong>, le document
+      n'affiche pas un montant négatif : il annonce « Trop-perçu, à vous
+      rembourser » et la somme à lui rendre.</p>
+      <p class="ex"><strong>Exemple — blocage.</strong> « STUDIO 6 BICHE :
+      impossible d'établir le document. Il manque son courriel, le montant :
+      garantie. » Remplis ces deux champs et recommence.</p>
 
       <h3>Travailler à deux</h3>
       <p>Un bandeau signale qu'une autre personne utilise l'application au même

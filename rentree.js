@@ -1,4 +1,4 @@
-// rentree.js — v135 — 07/09/2026
+// rentree.js — v140 — 07/09/2026
 // Gestion Loyers — module RENTRÉE, entièrement séparé
 //
 // POURQUOI CE MODULE EXISTE
@@ -555,6 +555,7 @@ function manquesRentree() {
     /* Un doublon non tranché empêche le versement : il manque autant qu'un
        document. */
     if (doublonEnAttente(l)) manquants.push('nom en double à trancher');
+    if (coquilleEnAttente(l)) manquants.push('orthographe du nom à trancher');
     CONTROLES_RENTREE.forEach(c => {
       if (!c.partout && !immeubleAvecAvenant(immeubleId)) return;
       if (!l.controles[c.cle]) manquants.push(c.libelle);
@@ -712,11 +713,17 @@ function dessinerVueRentree(message) {
     <div class="rentree-entete">
       <button class="btn-connexion" onclick="fermerVueRentree()">Retour</button>
       <h2>Rentrée ${donneesRentree.annee}</h2>
-      <span class="rentree-mois">vers ${libelleMois(moisAffiche)}</span>
+      <span class="rentree-mois-cible">⚠️ vers ${libelleMois(moisAffiche).toUpperCase()}</span>
       <div class="rentree-annee">
         <button class="btn-connexion mini" onclick="changerAnneeRentree(-1)">année −</button>
         <button class="btn-connexion mini" onclick="changerAnneeRentree(1)">année +</button>
       </div>
+    </div>
+    <div class="rentree-avertissement-mois">
+      <strong>ATTENTION — ne vous trompez pas de mois.</strong>
+      Tout versement écrit les données dans <strong>${
+        libelleMois(moisAffiche).toUpperCase()}</strong>. Le mois se change en haut
+      de l'application, pas ici.
     </div>
     ${message ? `<div class="rentree-message${
       messageEstUneAlerte(message) ? ' alerte' : ''}">${
@@ -1051,6 +1058,8 @@ function ligneHtmlRentree(immeubleId, unite) {
           </div>
         </div>`) : ''}
 
+    ${blocCoquilleRentree(unite.id, l)}
+
     <div class="rentree-champs">
       <label class="large">courriel du locataire
         <input type="email" inputmode="email" autocapitalize="off"
@@ -1216,7 +1225,7 @@ function changerSuivantRentree(uniteId, valeur) {
   /* Le nom a changé : ce qui avait été tranché sur l'ancien n'a plus
      d'objet. Une unité déjà versée conserve sa décision. */
   if (change && !l.verseeLe) {
-    delete l.apporte; delete l.doublon; delete l.homonyme;
+    delete l.apporte; delete l.doublon; delete l.homonyme; delete l.coquille;
   }
 
   /* ON CHERCHE LE NOM DANS LES DEUX SOURCES.
@@ -1263,7 +1272,17 @@ function changerSuivantRentree(uniteId, valeur) {
     };
     delete l.apporte;
   }
+
+  /* PUIS LA VÉRIFICATION CONTRE ONEDRIVE, qui porte sur CETTE unité —
+     là où se fait la faute de frappe. Elle demande une lecture réseau :
+     on redessine une première fois sans attendre, puis à nouveau quand la
+     réponse arrive. */
   enregistrerRentree().then(() => dessinerVueRentree()).catch(signalerEchecRentree);
+  if (nom && change && !l.verseeLe) {
+    verifierNomContreOneDrive(uniteId)
+      .then(() => { if (l.coquille) dessinerVueRentree(); })
+      .catch(() => {});
+  }
 }
 
 /* LES TROIS RÉPONSES AU DOUBLON. */
@@ -1452,6 +1471,23 @@ async function verserUniteRentree(uniteId) {
     }
   }
 
+  /* ON ATTEND LA VÉRIFICATION AVANT DE VERSER.
+
+     Le contrôle du nom part en arrière-plan à la saisie. Rien n'empêchait
+     de toucher « Verser » dans la seconde qui suit : la réponse n'était pas
+     revenue, aucune coquille n'était connue, et l'unité partait sous
+     l'orthographe fautive. La course est fermée ici. */
+  if (changeDeLocataire && l.locataireSuivant && !l.coquille) {
+    try { await verifierNomContreOneDrive(uniteId); } catch (e) { /* déjà noté */ }
+  }
+
+  /* UNE COQUILLE NON TRANCHÉE BLOQUE, COMME UN DOUBLON. Verser sous une
+     orthographe fausse crée un second locataire là où il n'y en a qu'un. */
+  if (coquilleEnAttente(l)) {
+    return dessinerVueRentree(
+      `${u.designation} : réponds d'abord à la question sur l'orthographe du nom.`);
+  }
+
   if (doublonEnAttente(l)) {
     return dessinerVueRentree(
       `${u.designation} : « ${l.locataireSuivant} » figure déjà à ${l.doublon.unite}. ` +
@@ -1559,9 +1595,19 @@ async function verserUniteRentree(uniteId) {
     .filter(m => l.montants[m.cle] != null)
     .map(m => `  ${m.libelle} : ${Number(l.montants[m.cle]).toFixed(2)} €`);
 
+  /* UN TRANSFERT VERS UN MOIS NE SE FAIT JAMAIS SANS LE RAPPELER.
+
+     Le mois figurait au milieu d'une phrase — « Verser STUDIO 1 dans
+     septembre 2026 ? » —, là où l'œil ne s'arrête pas. C'est pourtant la
+     seule donnée dont l'erreur ne se rattrape pas : un versement dans le
+     mauvais mois installe le locataire à un endroit d'où l'on ne peut
+     plus l'annuler. Il ouvre désormais la question, seul sur sa ligne.
+     Exigence de Gérard, 07/09/2026. */
   const ok = confirm(
+    `⚠️ LES DONNÉES VONT ÊTRE ÉCRITES DANS ${libelleMois(moisAffiche).toUpperCase()}.\n` +
+    `Vérifiez que c'est bien le mois voulu.\n\n` +
     `${changeDeLocataire ? 'Verser' : 'Appliquer les montants sur'} ${
-      u.designation} dans ${libelleMois(moisAffiche)} ?\n\n` +
+      u.designation} ?\n\n` +
     /* Q4 — au second versement, le locataire est déjà en place : afficher
        « X → X » n'apprend rien et fait douter. */
     (changeDeLocataire && premierVersement
@@ -2189,6 +2235,7 @@ function manquePourLesCles(immeubleId, unite, l) {
   else if (!adressesPlausibles(l)) m.push('un courriel valable');
   if (!l.debutBail) m.push('la date de début du bail');
   if (doublonEnAttente(l)) m.push('la réponse au nom en double');
+  if (coquilleEnAttente(l)) m.push('la réponse sur l\'orthographe du nom');
   montantsApplicables(immeubleId, unite.designation).forEach(x => {
     if (!montantValable(l.montants[x.cle])) m.push('le montant : ' + x.libelle);
   });
@@ -2468,7 +2515,13 @@ async function preparerDossierEdle(immeubleId, immeubleNom, unite, l) {
 /* Crée ce qui manque, une fois la destination confirmée. */
 async function creerDossierEdle(plan) {
   let refLoc = plan.refLoc;
-  if (!refLoc) refLoc = (await dossierEnfant(plan.refUnite, plan.nomLoc)).ref;
+  if (!refLoc) {
+    refLoc = (await dossierEnfant(plan.refUnite, plan.nomLoc)).ref;
+    /* LE STUDIO A UN DOSSIER DE PLUS : la liste gardée en mémoire pour le
+       contrôle d'orthographe est périmée. Sans cela, le nom qu'on vient de
+       créer resterait inconnu du contrôle jusqu'à la prochaine séance. */
+    _dossiersUniteCache = {};
+  }
   if (plan.refEdle) return plan.refEdle;
   return (await dossierEnfant(refLoc, 'EDLE')).ref;
 }
@@ -2907,6 +2960,16 @@ async function documentClesRentree(uniteId) {
       manque.join(', ') + '.');
   }
 
+  /* Même course pour le document : il porte le nom du locataire, et
+     nommera son dossier. */
+  if (l.locataireSuivant && !l.coquille) {
+    try { await verifierNomContreOneDrive(uniteId); } catch (e) { /* déjà noté */ }
+    if (coquilleEnAttente(l)) {
+      return dessinerVueRentree(
+        `${t.unite.designation} : réponds d'abord à la question sur l'orthographe du nom.`);
+    }
+  }
+
   const contenu = documentCles(t.immeubleId, t.immeubleNom, t.unite, l);
   const nom = nomFichierCles(t.immeubleNom, t.unite, l.locataireSuivant);
   apercuClesUniteId = uniteId;
@@ -2952,7 +3015,10 @@ async function enregistrerDocumentCles() {
       String((e && e.message) || e) + `.`);
   }
 
-  const question = `Enregistrer le document dans :\n\n${plan.chemin}\n\n` +
+  const question =
+    `⚠️ Document établi pour ${libelleMois(moisAffiche).toUpperCase()}.\n` +
+    `C'est le mois affiché en haut de l'application.\n\n` +
+    `Enregistrer le document dans :\n\n${plan.chemin}\n\n` +
     (plan.equivalences.length ? `${plan.equivalences.join('\n')}\n\n` : '') +
     (plan.doutes.length ? `⚠️ À vérifier :\n— ${plan.doutes.join('\n— ')}\n\n` : '') +
     `Deux fichiers seront déposés : ${nomDocx} et ${nomPdf}.`;
@@ -3054,6 +3120,347 @@ async function enregistrerDocumentCles() {
       `la ligne ne le rappellera pas.`));
 }
 
+
+
+/* ---- LA RECHERCHE DANS LES MODES D'EMPLOI ------------------------------
+
+   Il y a trois guides — le simple, le complet, et celui de la rentrée —
+   et ils font chacun plusieurs centaines de lignes. Y retrouver ce qu'on
+   cherche demandait de tout faire défiler.
+
+   Chaque guide a donc son champ. La recherche est écrite ici, dans le
+   fichier chargé en premier, pour servir aux trois sans être recopiée.
+
+   « Intelligente » veut dire trois choses précises :
+     — accents et majuscules ignorés : « déménagement » se trouve en
+       tapant « demenagement » ;
+     — un mot tapé est cherché comme DÉBUT de mot : « acompte » trouve
+       « acomptes », « garant » trouve « garantie » et « garant » ;
+     — une faute de frappe d'un caractère est tolérée sur les mots longs,
+       parce qu'on cherche justement ce qu'on écrit mal.
+
+   On montre LES DEUX : la phrase qui contient le terme, surlignée, et de
+   quoi déplier la section entière. Ajouté le 07/09/2026. */
+
+function normaliserRecherche(t) {
+  return String(t == null ? '' : t).normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '').toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+/* Le nombre de corrections d'un caractère qui séparent deux mots. */
+function ecartMots(a, b) {
+  if (a === b) return 0;
+  const m = a.length, n = b.length;
+  if (Math.abs(m - n) > 2) return 9;
+  let prec = Array.from({ length: n + 1 }, (_, j) => j);
+  for (let i = 1; i <= m; i++) {
+    const cour = [i];
+    for (let j = 1; j <= n; j++) {
+      cour[j] = Math.min(prec[j] + 1, cour[j - 1] + 1,
+        prec[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    }
+    prec = cour;
+  }
+  return prec[n];
+}
+
+/* Un mot cherché est-il présent dans un texte ? */
+function motTrouve(mot, motsDuTexte) {
+  if (!mot) return false;
+  for (const m of motsDuTexte) {
+    if (m.startsWith(mot)) return true;
+    /* La tolérance ne vaut que sur les mots assez longs : sur trois
+       lettres, une correction change le mot entièrement. */
+    if (mot.length >= 5 && ecartMots(mot, m) <= 1) return true;
+  }
+  return false;
+}
+
+function texteCorrespond(texte, mots) {
+  const dedans = normaliserRecherche(texte).split(' ');
+  return mots.every(mot => motTrouve(mot, dedans));
+}
+
+function surligner(html, mots) {
+  /* On surligne dans le TEXTE, jamais dans les balises : une insertion au
+     milieu d'un attribut casserait la page. */
+  return html.replace(/>([^<]+)</g, (tout, texte) => {
+    let sortie = texte;
+    mots.forEach(mot => {
+      if (mot.length < 2) return;
+      const re = new RegExp('([\\wÀ-ÿ]*' + mot.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '[\\wÀ-ÿ]*)', 'gi');
+      sortie = sortie.replace(re, '\u0001$1\u0002');
+    });
+    return '>' + sortie.replace(/\u0001/g, '<mark>').replace(/\u0002/g, '</mark>') + '<';
+  });
+}
+
+/* Découpe un guide en sections, une par titre. */
+function sectionsDuGuide(html) {
+  const morceaux = html.split(/(?=<h3[\s>])/);
+  return morceaux.map(bloc => {
+    const titre = (bloc.match(/<h3[^>]*>([\s\S]*?)<\/h3>/) || [])[1] || '';
+    return { titre: titre.replace(/<[^>]+>/g, '').trim(), html: bloc,
+             texte: bloc.replace(/<[^>]+>/g, ' ') };
+  }).filter(x => x.html.trim());
+}
+
+/* Les phrases d'une section qui contiennent ce qu'on cherche.
+
+   PAS DE LOOKBEHIND ICI.
+
+   J'avais écrit split(/(?<=[.!?:])\s+/) — couper après la ponctuation en la
+   gardant. C'est une construction que Safari ne comprend qu'à partir de la
+   version 16.4, sortie en mars 2023.
+
+   Et le dégât ne serait pas local : une expression régulière est analysée
+   au CHARGEMENT du fichier, pas à l'appel. Sur un iPhone resté en iOS 15 ou
+   16.0, rentree.js n'aurait pas été lu du tout — tout le module de rentrée
+   mort, sans un message. Une des rares constructions qu'aucun palliatif ne
+   rattrape. Constaté le 07/09/2026.
+
+   On marque donc la coupure avant de découper : même résultat, compris
+   partout. */
+function phrasesCorrespondantes(section, mots) {
+  return section.texte.replace(/\s+/g, ' ')
+    .replace(/([.!?:])\s/g, '$1\u0003')
+    .split('\u0003')
+    .map(p => p.trim()).filter(p => p.length > 15 && texteCorrespond(p, mots))
+    .slice(0, 4);
+}
+
+const _guidesEnMemoire = {};   /* zone → html d'origine */
+
+function rendreRechercheAide(zoneId, terme) {
+  const zone = document.getElementById(zoneId);
+  if (!zone) return;
+  const complet = _guidesEnMemoire[zoneId] || '';
+  const mots = normaliserRecherche(terme).split(' ').filter(Boolean);
+
+  if (!mots.length) { zone.innerHTML = complet; return; }
+
+  const sections = sectionsDuGuide(complet)
+    .filter(sec => texteCorrespond(sec.texte, mots));
+
+  if (!sections.length) {
+    zone.innerHTML = `<p class="aide-rien">Rien trouvé pour « ${
+      String(terme).replace(/[<>&]/g, '')} ». Essaie un autre mot, ou vide le
+      champ pour revoir tout le guide.</p>`;
+    return;
+  }
+
+  zone.innerHTML = `<p class="aide-compte">${sections.length} section${
+    sections.length > 1 ? 's' : ''} trouvée${sections.length > 1 ? 's' : ''}.</p>` +
+    sections.map((sec, i) => {
+      const phrases = phrasesCorrespondantes(sec, mots);
+      return `<div class="aide-resultat">
+        <h4>${sec.titre || 'Début du guide'}</h4>
+        ${phrases.map(p => `<p class="aide-extrait">${
+          surligner('>' + p + '<', mots).slice(1, -1)}</p>`).join('')}
+        <button class="btn-connexion mini"
+          onclick="basculerSectionAide('${zoneId}', ${i})">Voir la section entière</button>
+        <div class="aide-section-complete" id="${zoneId}-sec-${i}" style="display:none;">${
+          surligner(sec.html, mots)}</div>
+      </div>`;
+    }).join('');
+}
+
+function basculerSectionAide(zoneId, i) {
+  const d = document.getElementById(`${zoneId}-sec-${i}`);
+  if (d) d.style.display = d.style.display === 'none' ? 'block' : 'none';
+}
+
+/* Le champ, posé au-dessus du guide. */
+function champRechercheAide(zoneId) {
+  return `<input type="search" class="champ-recherche-aide"
+    placeholder="Rechercher dans ce mode d'emploi…"
+    oninput="rendreRechercheAide('${zoneId}', this.value)">`;
+}
+
+/* À appeler après avoir écrit le guide dans sa zone. */
+function preparerRechercheAide(zoneId, html) {
+  _guidesEnMemoire[zoneId] = html;
+}
+
+/* ---- LA COQUILLE SUR LE NOM ------------------------------------------
+
+   Gérard a saisi « Eva Smet » là où le mois porte « Eva SMETS », et rien
+   ne le lui a dit. La détection de doublon ne regarde QUE les autres
+   unités — pour reconnaître un déménagement —, jamais celle qu'on est en
+   train de traiter. Or c'est là que se fait la faute de frappe.
+
+   LA RÉFÉRENCE EST ONEDRIVE, PAS L'APPLICATION.
+
+   C'est dans Immobilier 2025-2026 que naissent les premières pièces d'un
+   locataire — son bail, son état des lieux. L'orthographe qui fait foi est
+   celle de son dossier. On compare donc le nom saisi aux dossiers du
+   studio, et l'on corrige VERS OneDrive : sans quoi les deux orthographes
+   coexistent, et le document part dans le dossier d'Eva SMETS sous le nom
+   d'Eva Smet.
+
+   Chaque studio garde le dossier de TOUS ses locataires successifs. Le
+   plus récemment créé est celui d'aujourd'hui : c'est vers celui-là qu'on
+   propose de corriger. Les dates sont montrées — Gérard tranchera mieux
+   que n'importe quelle règle. */
+
+let _dossiersUniteCache = {};   /* une lecture par unité et par séance */
+let _verifNomJeton = {};        /* pour ne pas laisser une réponse tardive gagner */
+
+/* Distance de Levenshtein : le nombre de corrections d'un caractère qui
+   séparent deux mots. « SMET » et « SMETS » en sont à une. */
+function distanceNoms(a, b) {
+  a = normaliserNom(a); b = normaliserNom(b);
+  if (a === b) return 0;
+  const m = a.length, n = b.length;
+  if (Math.abs(m - n) > 3) return 99;
+  let prec = Array.from({ length: n + 1 }, (_, j) => j);
+  for (let i = 1; i <= m; i++) {
+    const cour = [i];
+    for (let j = 1; j <= n; j++) {
+      cour[j] = Math.min(prec[j] + 1, cour[j - 1] + 1,
+        prec[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    }
+    prec = cour;
+  }
+  return prec[n];
+}
+
+/* Deux noms se ressemblent-ils au point d'être probablement le même ?
+   Le seuil suit la longueur : deux corrections sur un nom long, une seule
+   sur un nom court, où elles changent tout. */
+function nomsProches(a, b) {
+  const na = normaliserNom(a), nb = normaliserNom(b);
+  if (!na || !nb || na === nb) return false;
+  const d = distanceNoms(na, nb);
+  const seuil = Math.max(na.length, nb.length) >= 10 ? 2 : 1;
+  return d > 0 && d <= seuil;
+}
+
+async function dossiersDuStudio(immeubleId, unite) {
+  const cle = immeubleId + '|' + unite.id;
+  if (_dossiersUniteCache[cle]) return _dossiersUniteCache[cle];
+  const refImmeuble = await obtenirRefImmeuble(immeubleId);
+  const enfants = await enfantsDeRef(refImmeuble);
+  const trouve = await trouverRefUnite(enfants, refImmeuble, unite.designation, unite.locataire);
+  if (!trouve) throw new Error(`dossier de l'unité « ${unite.designation} » introuvable`);
+  const sous = (await enfantsDeRef(trouve.ref)).filter(e => e.folder || e.remoteItem);
+  /* Du plus récemment créé au plus ancien. La date de création date
+     l'arrivée du locataire et ne bouge plus ; celle de modification est
+     calculée à partir du contenu et remonte dès qu'on rouvre un vieux
+     fichier — elle ne sert qu'à départager. */
+  sous.sort((x, y) => {
+    const cx = x.createdDateTime || '', cy = y.createdDateTime || '';
+    if (cx !== cy) return cx < cy ? 1 : -1;
+    const mx = x.lastModifiedDateTime || '', my = y.lastModifiedDateTime || '';
+    return mx < my ? 1 : (mx > my ? -1 : 0);
+  });
+  _dossiersUniteCache[cle] = sous;
+  return sous;
+}
+
+/* Appelée à la saisie du nom. Ne bloque rien par elle-même : elle pose une
+   question sur la ligne, à laquelle il faut répondre avant de verser. */
+async function verifierNomContreOneDrive(uniteId) {
+  const t = toutesUnitesRentree().find(x => x.unite.id === uniteId);
+  if (!t) return;
+  const l = ligneRentree(uniteId);
+  delete l.coquille;
+  const saisi = String(l.locataireSuivant || '').trim();
+  if (!saisi) return;
+
+  /* DEUX SAISIES RAPIDES, DEUX LECTURES EN VOL.
+
+     La lecture de OneDrive prend un instant. Si le nom est corrigé pendant
+     ce temps, la première réponse arrivait après la seconde et posait une
+     question sur un nom qui n'existait plus à l'écran. Chaque vérification
+     porte donc un jeton : seule la dernière écrit. */
+  const jeton = (_verifNomJeton[uniteId] = (_verifNomJeton[uniteId] || 0) + 1);
+  const perime = () => _verifNomJeton[uniteId] !== jeton
+    || String(l.locataireSuivant || '').trim() !== saisi;
+
+  if (typeof estConnecte !== 'function' || !estConnecte()) {
+    /* SANS ONEDRIVE, ON NE VÉRIFIE RIEN — ET ON LE DIT. Laisser croire que
+       le nom a été contrôlé serait pire que de ne pas contrôler. */
+    if (perime()) return;
+    l.coquille = { horsLigne: true };
+    return;
+  }
+
+  let dossiers;
+  try {
+    dossiers = await dossiersDuStudio(t.immeubleId, t.unite);
+  } catch (e) {
+    if (perime()) return;
+    l.coquille = { horsLigne: true, raison: String((e && e.message) || e) };
+    return;
+  }
+
+  if (perime()) return;
+  if (dossiers.some(d => normaliserNom(d.name) === normaliserNom(saisi))) return;
+
+  const proche = dossiers.find(d => nomsProches(d.name, saisi));
+  if (!proche) return;
+
+  l.coquille = {
+    propose: proche.name,
+    cree: proche.createdDateTime || null,
+    modifie: proche.lastModifiedDateTime || null,
+    rang: dossiers.indexOf(proche) + 1,
+    total: dossiers.length,
+  };
+}
+
+function coquilleEnAttente(l) {
+  return !!(l.coquille && l.coquille.propose && !l.coquille.tranchee);
+}
+
+/* Les trois réponses. */
+function trancherCoquille(uniteId, choix) {
+  const l = ligneRentree(uniteId);
+  if (!l.coquille || !l.coquille.propose) return;
+  if (choix === 'frappe') {
+    /* ON CORRIGE VERS L'ORTHOGRAPHE DE ONEDRIVE : c'est elle qui fait foi,
+       et c'est elle qui nommera le dossier du document. */
+    l.locataireSuivant = l.coquille.propose;
+    delete l.coquille;
+  } else if (choix === 'reste') {
+    l.statut = 'reste';
+    l.locataireSuivant = '';
+    delete l.coquille;
+    delete l.doublon;
+    delete l.apporte;
+  } else {
+    l.coquille.tranchee = true;   /* deux personnes : on n'y revient plus */
+  }
+  enregistrerRentree().then(() => dessinerVueRentree()).catch(signalerEchecRentree);
+}
+
+function blocCoquilleRentree(uniteId, l) {
+  if (l.coquille && l.coquille.horsLigne) {
+    return `<p class="rentree-note">Le nom n'a pas pu être vérifié contre
+      OneDrive${l.coquille.raison ? ` — ${echapperR(l.coquille.raison)}` : ''}.
+      Vérifie l'orthographe toi-même.</p>`;
+  }
+  if (!coquilleEnAttente(l)) return '';
+  const c = l.coquille;
+  const quand = c.cree ? dateFr(String(c.cree).slice(0, 10)) : null;
+  return `<div class="rentree-coquille">
+    <p><strong>« ${echapperR(l.locataireSuivant)} » ressemble à «&nbsp;${
+      echapperR(c.propose)}&nbsp;»</strong>, dossier de ce studio dans OneDrive${
+      quand ? `, créé le ${quand}` : ''}${
+      c.total > 1 ? ` — le plus récent des ${c.total}` : ''}.</p>
+    <p>De quoi s'agit-il ?</p>
+    <div class="rentree-doublon-choix">
+      <button class="btn-connexion mini"
+        onclick="trancherCoquille('${uniteId}', 'frappe')">Faute de frappe</button>
+      <button class="btn-connexion mini"
+        onclick="trancherCoquille('${uniteId}', 'reste')">Le locataire reste</button>
+      <button class="btn-connexion mini retirer"
+        onclick="trancherCoquille('${uniteId}', 'deux')">Deux personnes</button>
+    </div>
+  </div>`;
+}
 
 /* ---- L'ENVOI AU LOCATAIRE ---------------------------------------------
 
@@ -3289,13 +3696,10 @@ function fermerApercuCles() {
    modifié par ce module, et une aide qui accompagne l'écran qu'elle décrit
    se trouve plus facilement. */
 function ouvrirAideRentree() {
-  const html = `<div class="vue-rentree">
-    <div class="rentree-entete">
-      <button class="btn-connexion" onclick="ouvrirVueRentree()">Retour</button>
-      <h2>Mode d'emploi — Rentrée</h2>
-    </div>
-
-    <div class="aide-rentree">
+  /* LE GUIDE EST DÉCOUPÉ EN DEUX : l'en-tête avec son champ de recherche,
+     et le corps, qui seul est filtré. La recherche est écrite dans app.js,
+     chargé avant celui-ci, pour servir aux trois guides sans recopie. */
+  const corps = `
 
       <h3>À quoi sert cet écran</h3>
       <p>Les studios sont loués à des étudiants. Dès février, on sait qui part
@@ -3437,6 +3841,27 @@ function ouvrirAideRentree() {
       395 € mais les charges ne bougent pas : tu saisis 395 dans « loyer » et tu
       laisses « charges » vide. Les 90 € de charges resteront.</p>
 
+      <h3>Une faute de frappe sur le nom</h3>
+      <p>Quand tu saisis le remplaçant, l'application compare ce que tu as tapé
+      aux <strong>dossiers du studio dans OneDrive</strong> — c'est là que
+      naissent les premières pièces d'un locataire, et c'est cette orthographe
+      qui fait foi.</p>
+      <p>Si le nom ressemble de très près à un dossier existant sans lui être
+      identique, elle demande de quoi il s'agit, en montrant la date de création
+      du dossier. Chaque studio garde le dossier de tous ses locataires
+      successifs : le plus récemment créé est celui d'aujourd'hui.</p>
+      <p><strong>Faute de frappe</strong> — le nom est remplacé par celui du
+      dossier.<br>
+      <strong>Le locataire reste</strong> — statut basculé, nom effacé.<br>
+      <strong>Deux personnes</strong> — une fille et sa mère, deux étudiants de
+      même nom : rien ne change.</p>
+      <p class="ex"><strong>Exemple.</strong> Tu tapes « Eva Smet ». Le studio
+      contient le dossier « Eva SMETS », créé le 01/08/2025. L'application
+      demande. Tu réponds « Faute de frappe » : le nom devient « Eva SMETS », et
+      le document partira dans le bon dossier.</p>
+      <p>Sans connexion à OneDrive, aucun contrôle n'est possible — l'application
+      le dit plutôt que de laisser croire que le nom a été vérifié.</p>
+
       <h3>Un nom qui figure déjà ailleurs</h3>
       <p>Si le nom du remplaçant est déjà connu dans le parc, l'application le
       signale <strong>dès la saisie</strong> et demande de quoi il s'agit. Elle
@@ -3466,6 +3891,10 @@ function ouvrirAideRentree() {
       tu verses les deux unités n'a donc aucune importance.</p>
 
       <h3>Verser dans le mois</h3>
+      <p><strong>Le mois de destination est rappelé partout</strong> : en tête
+      de l'écran, en rouge, et en première ligne de chaque confirmation — au
+      versement comme à l'enregistrement du document. C'est la seule donnée dont
+      l'erreur ne se rattrape pas.</p>
       <p>Septembre est créé au mois d'août, par recopie d'août. Tu verses
       ensuite <strong>unité par unité</strong>, au fur et à mesure que les
       lignes se remplissent.</p>
@@ -3629,9 +4058,18 @@ function ouvrirAideRentree() {
       sauvegarde n'est pas partie sur OneDrive — conflit avec une autre
       personne, ou connexion perdue. » Rien n'a été écrit : l'unité est restée
       comme avant.</p>
+`;
 
+  preparerRechercheAide('aide-rentree-corps', corps);
+  const html = `<div class="vue-rentree">
+    <div class="rentree-entete">
+      <button class="btn-connexion" onclick="ouvrirVueRentree()">Retour</button>
+      <h2>Mode d'emploi — Rentrée</h2>
     </div>
+    ${champRechercheAide('aide-rentree-corps')}
+    <div class="aide-rentree" id="aide-rentree-corps">${corps}</div>
   </div>`;
+
   const zone = document.getElementById('vue-rentree-conteneur');
   if (!zone) return;
   zone.innerHTML = html;

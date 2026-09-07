@@ -1,4 +1,4 @@
-// graph-storage.js — v121 — 06/09/2026
+// graph-storage.js — v136 — 07/09/2026
 // Gestion Loyers — stockage des données dans OneDrive
 // Un fichier PAR MOIS dans un sous-dossier dédié "GESTION-LOYERS/historique",
 // à l'intérieur du dossier PARTAGÉ "Immobilier 2025-2026" (le même que VéroS).
@@ -85,7 +85,18 @@ function refDe(item, driveParent) {
 }
 
 async function enfantsDeRef(ref) {
-  const champs = 'id,name,folder,file,remoteItem,webUrl';
+  /* LES DATES SERVENT À RECONNAÎTRE LE DOSSIER DU LOCATAIRE EN COURS.
+
+     Un studio garde le dossier de TOUS ses locataires successifs. Pour
+     savoir lequel est celui d'aujourd'hui — et donc vers quelle
+     orthographe corriger une faute de frappe —, il faut les dater.
+
+     createdDateTime est le meilleur repère : le dossier a été créé quand
+     le locataire est arrivé, et cette date ne bouge plus.
+     lastModifiedDateTime, lui, est calculé à partir du contenu et remonte
+     dès qu'on rouvre un vieux fichier — il ne sert qu'à départager.
+     Ajouté le 07/09/2026. */
+  const champs = 'id,name,folder,file,remoteItem,webUrl,createdDateTime,lastModifiedDateTime';
   let url;
   if (!ref || !ref.id) {
     url = `/me/drive/root/children?$top=200&$select=${champs}`;

@@ -1,4 +1,4 @@
-// app.js — v122 — 06/09/2026
+// app.js — v138 — 07/09/2026
 // Gestion Loyers — logique applicative
 // Étape 6 : suivi mensuel — un mois en cours créé automatiquement, mois passés
 // consultables ET modifiables (ex. loyer payé en retard, noté après coup).
@@ -1419,8 +1419,16 @@ function ouvrirVueAide() {
   afficherGuide('simple');
 }
 
+
+/* La recherche dans les guides est écrite dans rentree.js — chargé après
+   ce fichier, mais bien avant qu'on touche un bouton. La placer là plutôt
+   qu'ici permet aux bancs d'essai du module rentrée de l'éprouver. */
 function afficherGuide(quel) {
-  document.getElementById('vue-aide-container').innerHTML = quel === 'simple' ? GUIDE_SIMPLE : GUIDE_COMPLET;
+  const html = quel === 'simple' ? GUIDE_SIMPLE : GUIDE_COMPLET;
+  preparerRechercheAide('vue-aide-guide', html);
+  document.getElementById('vue-aide-container').innerHTML =
+    champRechercheAide('vue-aide-guide') +
+    `<div id="vue-aide-guide">${html}</div>`;
 }
 
 async function ouvrirVueDettes() {

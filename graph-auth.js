@@ -1,15 +1,28 @@
+// graph-auth.js — v132 — 07/09/2026
 // Gestion Loyers — authentification Microsoft Graph (OAuth2 + PKCE)
 // Même approche que VéroS : aucune librairie, aucun CDN.
 //
 // Permissions demandées :
 //  - Files.Read      : lire les documents des locataires dans OneDrive (scan bail/EDLE/EDLS/Samadhi)
+// graph-auth.js — v132 — 07/09/2026
 //  - Files.ReadWrite : lire/écrire le fichier de données de Gestion Loyers dans le dossier
 //                      OneDrive PARTAGÉ (Gérard, Véronique, fils) — pas un dossier privé,
 //                      donc la permission ne peut plus être limitée à AppFolder
 
 const MSAL_CLIENT_ID = "42a7292b-76c0-404c-bb3a-fb4cb35d4694"; // inscription Entra "Gestion Loyers"
 const MSAL_REDIRECT_URI = window.location.origin + window.location.pathname.replace(/index\.html$/, "");
-const MSAL_SCOPES = "Files.Read Files.ReadWrite offline_access";
+/* MAIL.SEND — AJOUTÉ LE 07/09/2026.
+
+   Gestion Loyers envoie désormais le document de remise des clés au
+   locataire, depuis la boîte Outlook de Gérard. Microsoft Graph accepte
+   cette autorisation pour les comptes personnels ; l'accord se donne à la
+   connexion, il n'y a rien à payer.
+
+   Après cette mise à jour il faut se DÉCONNECTER puis se reconnecter :
+   Microsoft affichera un nouvel écran d'accord mentionnant l'envoi de
+   courrier. Sans cela, le jeton en cours ne porte pas ce droit et l'envoi
+   sera refusé. */
+const MSAL_SCOPES = "Files.Read Files.ReadWrite Mail.Send offline_access";
 const MSAL_AUTHORITY = "https://login.microsoftonline.com/consumers"; // comptes Microsoft personnels uniquement
 
 const TOKEN_STORAGE_KEY = "gestionLoyersMsalToken";

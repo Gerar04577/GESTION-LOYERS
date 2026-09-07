@@ -1,4 +1,4 @@
-// rentree.js — v131 — 06/09/2026
+// rentree.js — v135 — 07/09/2026
 // Gestion Loyers — module RENTRÉE, entièrement séparé
 //
 // POURQUOI CE MODULE EXISTE
@@ -254,31 +254,80 @@ let ecritureRentreeEnCours = false;
 let ecritureRentreeAttendue = false;
 let refDossierRentree = null;
 
+/* LE DOSSIER DE RENTRÉE POUVAIT NE PAS SE SAUVER, EN SILENCE.
+
+   Deux fuites, l'une et l'autre invisibles :
+
+     — ecrireFichierDansDossier REND une réponse, elle ne lève pas
+       d'erreur. Un refus de Microsoft — droits, quota, jeton expiré —
+       passait donc pour une réussite. Statuts, montants, acomptes,
+       décisions de doublon, traces de dépôt et d'envoi : tout pouvait
+       rester sur l'appareil sans jamais partir. Même famille que l'échec
+       de sauvegarde du 18 août ;
+
+     — quand une écriture était déjà en cours, la fonction rendait la main
+       IMMÉDIATEMENT, en promettant une réussite. Un appelant qui attendait
+       — le dépôt du document, l'envoi au locataire — croyait sa note
+       écrite alors que rien n'était encore parti.
+
+   Corrigé le 07/09/2026 : on regarde la réponse, et un appelant qui attend
+   reçoit le sort de l'écriture réellement en cours. */
+let ecritureRentreePromesse = null;
+
 async function enregistrerRentree() {
   if (!donneesRentree) return;
-  if (ecritureRentreeEnCours) { ecritureRentreeAttendue = true; return; }
+  if (ecritureRentreeEnCours) {
+    ecritureRentreeAttendue = true;
+    return ecritureRentreePromesse;
+  }
   ecritureRentreeEnCours = true;
-  try {
+  ecritureRentreePromesse = (async () => {
     donneesRentree.modifiePar = (typeof obtenirMonPrenom === 'function')
       ? obtenirMonPrenom() : '';
     donneesRentree.modifieLe = new Date().toISOString();
     if (!refDossierRentree) {
       refDossierRentree = await resoudreRefParChemin(RENTREE_DOSSIER, true);
     }
-    await ecrireFichierDansDossier(refDossierRentree,
+    const res = await ecrireFichierDansDossier(refDossierRentree,
       `rentree-${donneesRentree.annee}.json`,
       JSON.stringify(donneesRentree, null, 2));
+    if (!res || !res.ok) {
+      throw new Error(res && typeof detailErreur === 'function'
+        ? await detailErreur(res) : 'refus de Microsoft');
+    }
     localStorage.setItem(CLE_RENTREE + donneesRentree.annee,
       JSON.stringify(donneesRentree));
+  })();
+  try {
+    await ecritureRentreePromesse;
   } finally {
     ecritureRentreeEnCours = false;
     /* LA REPRISE EST ICI, PAS APRÈS : placée après le bloc, elle était
        sautée quand l'écriture levait une erreur. */
     if (ecritureRentreeAttendue) {
       ecritureRentreeAttendue = false;
-      enregistrerRentree().catch(() => {});
+      enregistrerRentree().catch(e => signalerEchecRentree(e));
     }
   }
+}
+
+/* UNE SAUVEGARDE QUI N'EST PAS PARTIE SE DIT.
+
+   Les vingt appels qui ne l'attendaient pas ignoraient désormais une
+   erreur au lieu de l'ignorer sans le savoir — ce qui ne vaut pas mieux.
+   Ils passent tous par ici. */
+/* Ce qu'on ajoute à un message quand la note n'a pas pu partir. L'action
+   elle-même a eu lieu : on ne la fait pas passer pour un échec. */
+const NOTE_NON_ENREGISTREE =
+  `\nATTENTION : la rentrée n'a PAS été enregistrée dans OneDrive. Ta saisie ` +
+  `est conservée sur cet appareil, mais refais la manipulation quand la ` +
+  `connexion sera rétablie.`;
+
+function signalerEchecRentree(e) {
+  const detail = String((e && e.message) || e);
+  dessinerVueRentree(`ATTENTION : la rentrée n'a PAS été enregistrée dans ` +
+    `OneDrive — ${detail}. Ta saisie est conservée sur cet appareil ; ` +
+    `refais la manipulation quand la connexion sera rétablie.`);
 }
 
 /* Toutes les unités du parc, avec leur immeuble. */
@@ -1071,7 +1120,9 @@ function ligneHtmlRentree(immeubleId, unite) {
 
     ${l.clesDepotLe ? `<p class="rentree-depot">📁 Document remis déposé le ${
       dateHeureCourte(l.clesDepotLe)}<br>${echapperR(l.clesChemin || '')}${
-      l.clesFichier ? ' / ' + echapperR(l.clesFichier) : ''}</p>` : ''}
+      l.clesFichier ? ' / ' + echapperR(l.clesFichier) : ''}${
+      l.clesEnvoyeLe ? `<br>✉️ Envoyé le ${dateHeureCourte(l.clesEnvoyeLe)} à ${
+        echapperR(l.clesEnvoyeA || '')}` : ''}</p>` : ''}
 
     ${!attendRemplacant && totalAcomptes(l) ? `<p class="rentree-alerte-champ">
       Un acompte de ${totalAcomptes(l).toFixed(2)} € reste inscrit sur cette ligne.
@@ -1134,13 +1185,13 @@ function changerStatutRentree(uniteId, valeur) {
   if ((valeur === 'reste' || valeur === 'inoccupe') &&
       avant !== valeur && totalAcomptes(l)) {
     const t = toutesUnitesRentree().find(x => x.unite.id === uniteId);
-    return enregistrerRentree().then(() => dessinerVueRentree(
+    return enregistrerRentree().catch(signalerEchecRentree).then(() => dessinerVueRentree(
       `${t ? t.unite.designation : 'Cette unité'} : ATTENTION — un acompte de ` +
       `${totalAcomptes(l).toFixed(2)} € est inscrit sur cette ligne. Sous « ${
         valeur === 'reste' ? 'le locataire reste' : 'inoccupé'} » il ne sera porté ` +
       `nulle part. Il est conservé, mais rien ne l'appliquera.`));
   }
-  enregistrerRentree().then(() => dessinerVueRentree());
+  enregistrerRentree().then(() => dessinerVueRentree()).catch(signalerEchecRentree);
 }
 /* LE DÉMÉNAGEMENT SE CONSTATE À LA SAISIE DU NOM, PAS AU VERSEMENT.
 
@@ -1212,7 +1263,7 @@ function changerSuivantRentree(uniteId, valeur) {
     };
     delete l.apporte;
   }
-  enregistrerRentree().then(() => dessinerVueRentree());
+  enregistrerRentree().then(() => dessinerVueRentree()).catch(signalerEchecRentree);
 }
 
 /* LES TROIS RÉPONSES AU DOUBLON. */
@@ -1232,7 +1283,7 @@ function trancherDoublonRentree(uniteId, choix) {
     delete l.apporte;               /* deux personnes : rien ne suit */
     l.homonyme = true;
   }
-  enregistrerRentree().then(() => dessinerVueRentree());
+  enregistrerRentree().then(() => dessinerVueRentree()).catch(signalerEchecRentree);
 }
 
 /* Revenir sur un choix déjà fait, tant que l'unité n'est pas versée. */
@@ -1241,7 +1292,7 @@ function rouvrirDoublonRentree(uniteId) {
   if (!l.doublon || l.verseeLe) return;
   l.doublon.choix = null;
   delete l.apporte; delete l.homonyme;
-  enregistrerRentree().then(() => dessinerVueRentree());
+  enregistrerRentree().then(() => dessinerVueRentree()).catch(signalerEchecRentree);
 }
 
 /* Un doublon détecté, pas encore tranché. Bloque le versement. */
@@ -1256,7 +1307,7 @@ function changerAcompteRentree(uniteId, index, champ, valeur) {
     if (v !== '' && !montantValable(v)) {
       l.acomptes[index].montant = null;
       const t = toutesUnitesRentree().find(x => x.unite.id === uniteId);
-      return enregistrerRentree().then(() => dessinerVueRentree(
+      return enregistrerRentree().catch(signalerEchecRentree).then(() => dessinerVueRentree(
         `${t ? t.unite.designation : 'Cette unité'} : « ${valeur} » n'est pas un ` +
         `montant valable. L'acompte a été laissé vide.`));
     }
@@ -1264,7 +1315,7 @@ function changerAcompteRentree(uniteId, index, champ, valeur) {
   } else {
     l.acomptes[index].date = valeur || null;
   }
-  enregistrerRentree().then(() => dessinerVueRentree());
+  enregistrerRentree().then(() => dessinerVueRentree()).catch(signalerEchecRentree);
 }
 
 /* L'adresse est enregistrée telle quelle, même douteuse : l'effacer
@@ -1274,22 +1325,22 @@ function changerEmailRentree(uniteId, valeur, quel) {
   const l = ligneRentree(uniteId);
   if (quel === 'garant') l.emailGarant = String(valeur || '').trim();
   else l.email = String(valeur || '').trim();
-  enregistrerRentree().then(() => dessinerVueRentree());
+  enregistrerRentree().then(() => dessinerVueRentree()).catch(signalerEchecRentree);
 }
 
 function changerDebutBailRentree(uniteId, valeur) {
   ligneRentree(uniteId).debutBail = valeur || null;
-  enregistrerRentree().then(() => dessinerVueRentree());
+  enregistrerRentree().then(() => dessinerVueRentree()).catch(signalerEchecRentree);
 }
 
 function ajouterAcompteRentree(uniteId) {
   ligneRentree(uniteId).acomptes.push({ montant: null, date: null });
-  enregistrerRentree().then(() => dessinerVueRentree());
+  enregistrerRentree().then(() => dessinerVueRentree()).catch(signalerEchecRentree);
 }
 
 function retirerAcompteRentree(uniteId, index) {
   ligneRentree(uniteId).acomptes.splice(index, 1);
-  enregistrerRentree().then(() => dessinerVueRentree());
+  enregistrerRentree().then(() => dessinerVueRentree()).catch(signalerEchecRentree);
 }
 /* Les six montants du bail à venir. Un champ vide vaut « rien saisi », et
    non zéro : la distinction compte pour savoir ce qui reste à remplir. */
@@ -1305,7 +1356,7 @@ function changerMontantRentree(uniteId, cle, valeur) {
      passer et qui ressort en 0,00 € sur le document. */
   if (v !== '' && !montantValable(v)) {
     l.montants[cle] = null;
-    return enregistrerRentree().then(() => dessinerVueRentree(
+    return enregistrerRentree().catch(signalerEchecRentree).then(() => dessinerVueRentree(
       `${t ? t.unite.designation : 'Cette unité'} : « ${valeur} » n'est pas un ` +
       `montant valable. Le champ a été laissé vide.`));
   }
@@ -1318,7 +1369,7 @@ function changerMontantRentree(uniteId, cle, valeur) {
      La barrière ne joue qu'à la saisie : rien n'empêche de vider un montant
      ensuite. On ne supprime pas le paiement pour autant — on le dit. */
   if (v === '' && totalAcomptes(l)) {
-    return enregistrerRentree().then(() => dessinerVueRentree(
+    return enregistrerRentree().catch(signalerEchecRentree).then(() => dessinerVueRentree(
       `${t ? t.unite.designation : 'Cette unité'} : ATTENTION — un acompte de ` +
       `${totalAcomptes(l).toFixed(2)} € est inscrit sur cette ligne et tu viens ` +
       `de vider un montant. L'acompte est conservé, mais il ne sera plus ` +
@@ -1329,14 +1380,14 @@ function changerMontantRentree(uniteId, cle, valeur) {
      Hors de ce cas on ne redessine pas, pour ne pas couper une saisie en
      cours sur les montants suivants. */
   if (ouvertAvant !== ouvertApres) {
-    return enregistrerRentree().then(() => dessinerVueRentree());
+    return enregistrerRentree().then(() => dessinerVueRentree()).catch(signalerEchecRentree);
   }
-  enregistrerRentree();
+  enregistrerRentree().catch(signalerEchecRentree);
 }
 function basculerControleRentree(uniteId, cle) {
   const l = ligneRentree(uniteId);
   l.controles[cle] = !l.controles[cle];
-  enregistrerRentree().then(() => dessinerVueRentree());
+  enregistrerRentree().then(() => dessinerVueRentree()).catch(signalerEchecRentree);
 }
 function changerAnneeRentree(pas) {
   anneeRentreeAffichee = (anneeRentreeAffichee || anneeRentree()) + pas;
@@ -1397,7 +1448,7 @@ async function verserUniteRentree(uniteId) {
           venantDe: tardif.unite.designation,
         } : null,
       };
-      await enregistrerRentree();
+      await enregistrerRentree().catch(signalerEchecRentree);
     }
   }
 
@@ -1487,7 +1538,7 @@ async function verserUniteRentree(uniteId) {
     if (!accepte) return dessinerVueRentree(
       `${u.designation} : saisis la date de début du bail avant de verser.`);
     l.debutBail = propose;
-    await enregistrerRentree();
+    await enregistrerRentree().catch(signalerEchecRentree);
   }
 
 
@@ -1838,10 +1889,13 @@ async function verserUniteRentree(uniteId) {
   if (changeDeLocataire && !avecGarantie && premierVersement && total) {
     l.acomptesPortes = total;
   }
-  await enregistrerRentree();
+  /* LE VERSEMENT A EU LIEU : son annonce ne doit pas tomber si la note
+     ne part pas. Le mois est déjà sauvé et vérifié plus haut. */
+  let noteOk = true;
+  try { await enregistrerRentree(); } catch (e) { noteOk = false; }
   /* Pas de message en tête pour une réussite : la ligne elle-même porte
      désormais « Versée dans … », visible à l'endroit où l'on travaille. */
-  dessinerVueRentree();
+  dessinerVueRentree(noteOk ? undefined : NOTE_NON_ENREGISTREE.trim());
 }
 
 /* SAUVEGARDER ET VÉRIFIER QUE C'EST PARTI.
@@ -1962,8 +2016,10 @@ async function annulerVersementRentree(uniteId) {
   /* Le choix du doublon se rouvre aussi : l'unité redevient modifiable, et
      la situation a pu changer entre-temps. */
   if (l.doublon) { l.doublon.choix = null; delete l.homonyme; }
-  await enregistrerRentree();
-  dessinerVueRentree(`Versement de ${u.designation} annulé.`);
+  let noteAnnul = true;
+  try { await enregistrerRentree(); } catch (e) { noteAnnul = false; }
+  dessinerVueRentree(`Versement de ${u.designation} annulé.` +
+    (noteAnnul ? '' : NOTE_NON_ENREGISTREE));
 }
 
 /* REMISE À ZÉRO DU MOIS D'ESSAI.
@@ -2034,8 +2090,10 @@ async function remiseAZeroRentree() {
     return dessinerVueRentree(
       `Remise à zéro non enregistrée. ${r.message} Recharge le mois avant de recommencer.`);
   }
-  await enregistrerRentree();
-  dessinerVueRentree(`${instantanes.length} versement(s) annulé(s).` +
+  let noteRaz = true;
+  try { await enregistrerRentree(); } catch (e) { noteRaz = false; }
+  dessinerVueRentree((noteRaz ? '' : NOTE_NON_ENREGISTREE.trim() + '\n') +
+    `${instantanes.length} versement(s) annulé(s).` +
     (sansInstantane.length
       ? ` ${sansInstantane.length} n'ont pas pu l'être (version antérieure) : ${
           sansInstantane.join(', ')}.`
@@ -2599,6 +2657,24 @@ function documentClesDocxXml(immeubleId, immeubleNom, unite, l) {
   ].filter(Boolean).join('');
 }
 
+/* RIEN NE DOIT POUVOIR ATTENDRE SANS FIN.
+
+   Les appels à Microsoft ont une limite de quinze secondes depuis le mois
+   d'août — parce qu'une requête peut rester « en cours » indéfiniment, sans
+   jamais échouer ni réussir. La compression du Word et la lecture du PDF,
+   elles, n'en avaient aucune : si l'une se figeait, le bouton restait sur
+   « Dépôt… » pour toujours, sans un mot. Constaté en simulation le
+   07/09/2026.
+
+   Mieux vaut un échec dit qu'une attente muette. */
+function avecDelai(promesse, ms, quoi) {
+  return Promise.race([
+    promesse,
+    new Promise((_, non) => setTimeout(
+      () => non(new Error(`${quoi} n'a pas abouti en ${Math.round(ms / 1000)} secondes`)), ms)),
+  ]);
+}
+
 async function construireDocxCles(immeubleId, immeubleNom, unite, l) {
   /* JSZip est déposé DANS le dépôt, pas chargé depuis un serveur extérieur :
      le jour où celui-ci ne répond pas, le bouton doit continuer de marcher.
@@ -2899,7 +2975,9 @@ async function enregistrerDocumentCles() {
   /* LE WORD DANS ONEDRIVE. */
   let item;
   try {
-    const blob = await construireDocxCles(t.immeubleId, t.immeubleNom, t.unite, l);
+    const blob = await avecDelai(
+      construireDocxCles(t.immeubleId, t.immeubleNom, t.unite, l),
+      20000, 'la fabrication du fichier Word');
     const res = await ecrireFichierDansDossier(ref, nomDocx, blob, { headers: {
       'Content-Type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' } });
     if (!res || !res.ok) {
@@ -2930,6 +3008,8 @@ async function enregistrerDocumentCles() {
      est déjà en place, on le dit et on s'arrête là. */
   try {
     const pdf = await pdfDepuisOneDrive(item);
+    /* Gardé pour l'envoi : Microsoft veut la pièce jointe dans l'appel. */
+    pdfClesEnMemoire = { uniteId, nom: nomPdf, blob: pdf };
     const res = await ecrireFichierDansDossier(ref, nomPdf, pdf,
       { headers: { 'Content-Type': 'application/pdf' } });
     if (!res || !res.ok) {
@@ -2949,13 +3029,193 @@ async function enregistrerDocumentCles() {
   l.clesDepotLe = new Date().toISOString();
   l.clesChemin = chemin;
   l.clesFichier = nomPdf;
-  await enregistrerRentree();
+  /* L'ÉCHEC D'UN ENREGISTREMENT SECONDAIRE NE DOIT PAS EFFACER L'ANNONCE
+     D'UN DÉPÔT RÉUSSI.
+
+     Les deux fichiers sont dans OneDrive. Si la note prise sur la ligne ne
+     part pas — conflit, réseau —, on le dit, mais on n'avale pas le
+     succès : sans cela le bouton restait éteint et rien ne s'affichait,
+     alors que la pièce était bien en place. Constaté en simulation le
+     07/09/2026. */
+  let traceEcrite = true;
+  try { await enregistrerRentree(); } catch (e) { traceEcrite = false; }
 
   if (bouton) { bouton.disabled = true; bouton.textContent = '✓ Enregistré'; }
+  /* L'ENVOI NE S'OUVRE QU'ICI : le PDF est en place, et lui seul part chez
+     le locataire. */
+  const bEnvoi = document.getElementById('apercu-cles-envoyer');
+  if (bEnvoi) bEnvoi.disabled = false;
   annoncerCles(
     `Document enregistré — ${chemin} / ${nomPdf}\n` +
     `Le Word est déposé au même endroit, sous le même nom.` +
-    (dossierCree ? `\nLe dossier du locataire a été créé.` : ''));
+    (dossierCree ? `\nLe dossier du locataire a été créé.` : '') +
+    (traceEcrite ? '' : `\nATTENTION : la note de dépôt n'a PAS été enregistrée ` +
+      `dans le dossier de rentrée. Les deux fichiers sont bien en place, mais ` +
+      `la ligne ne le rappellera pas.`));
+}
+
+
+/* ---- L'ENVOI AU LOCATAIRE ---------------------------------------------
+
+   Gestion Loyers n'envoyait rien : elle n'écrivait que dans OneDrive. Mais
+   la même connexion Microsoft sait aussi expédier un courriel depuis la
+   boîte Outlook de Gérard — l'autorisation Mail.Send, ajoutée le
+   07/09/2026. Ni Make, ni service tiers, ni frais.
+
+   L'envoi n'est possible qu'APRÈS l'enregistrement : on n'expédie pas une
+   pièce qui n'existe nulle part. Le PDF déposé est gardé en mémoire pour
+   la durée de la séance ; refermer l'application oblige à réenregistrer,
+   ce qui est le comportement sûr. */
+let pdfClesEnMemoire = null;   /* { uniteId, nom, blob } */
+
+/* MESSAGE IMPERSONNEL, SANS PRÉNOM NI SIGNATURE.
+
+   Le nom du locataire figure déjà dans la pièce jointe ; il n'a rien à
+   faire dans le corps. Décision de Gérard, 07/09/2026. */
+function messageCles(unite) {
+  return `Madame, Monsieur,\n\n` +
+    `Vous trouverez en pièce jointe le décompte des sommes à verser avant ` +
+    `la remise des clés — ${unite.designation}.\n\n` +
+    `Le paiement doit être effectué avant la remise des clés, qui aura lieu ` +
+    `contre signature de l'état des lieux d'entrée.\n\n` +
+    `Veuillez agréer nos salutations distinguées.`;
+}
+
+function ouvrirEnvoiCles() {
+  const t = pdfClesEnMemoire &&
+    toutesUnitesRentree().find(x => x.unite.id === pdfClesEnMemoire.uniteId);
+  if (!t) return;
+  const l = ligneRentree(t.unite.id);
+
+  const dest = String(l.email || '').trim();
+  const garant = String(l.emailGarant || '').trim();
+  if (!dest && !garant) {
+    return annoncerCles(`${t.unite.designation} : aucune adresse pour ce locataire. ` +
+      `Saisis au moins un courriel avant d'envoyer.`);
+  }
+
+  const zone = document.getElementById('apercu-cles-envoi');
+  if (!zone) return;
+  zone.style.display = 'flex';
+  zone.innerHTML = `
+    <p class="apercu-cles-titre">Ce qui sera envoyé</p>
+    <div class="envoi-ligne"><span>De</span><b>Votre boîte Outlook</b></div>
+    <div class="envoi-ligne"><span>À</span><b>${echapperR(dest || garant)}${
+      dest && garant ? `<br><i>${echapperR(garant)} (garant, en copie)</i>` : ''}</b></div>
+    <div class="envoi-ligne"><span>Objet</span><b id="envoi-objet-vu">${
+      echapperR(t.unite.designation)} — montant à verser avant la remise des clés</b></div>
+    <p class="apercu-cles-titre" style="margin-top:10px;">Message</p>
+    <textarea id="envoi-corps" class="envoi-corps">${
+      echapperR(messageCles(t.unite))}</textarea>
+    <div class="envoi-piece">📎 ${echapperR(pdfClesEnMemoire.nom)}</div>
+    ${l.clesEnvoyeLe ? `<p class="rentree-alerte-champ">Ce document a déjà été
+      envoyé le ${dateHeureCourte(l.clesEnvoyeLe)} à ${echapperR(l.clesEnvoyeA || '')}.
+      Un nouvel envoi fera doublon chez le locataire.</p>` : ''}
+    <p id="envoi-message" class="rentree-alerte-champ" style="display:none;"></p>
+    <div class="envoi-boutons">
+      <button class="btn-connexion" id="envoi-partir"
+        onclick="envoyerDocumentCles()">✉️ Envoyer</button>
+      <button class="btn-connexion" onclick="fermerEnvoiCles()">Annuler</button>
+    </div>`;
+}
+
+/* UN REFUS D'ENVOI DOIT SE VOIR TOUT DE SUITE.
+
+   Il passait par le message en attente, qui ne s'affiche qu'à la fermeture
+   de l'aperçu : on cliquait « Envoyer », rien ne bougeait, et l'échec
+   n'apparaissait que bien plus tard. Il s'écrit désormais dans le panneau
+   de rédaction, sous les yeux. Constaté le 07/09/2026. */
+function direEnvoi(message) {
+  const z = document.getElementById('envoi-message');
+  if (z) { z.textContent = message; z.style.display = 'block'; }
+  else annoncerCles(message);
+}
+
+function fermerEnvoiCles() {
+  const zone = document.getElementById('apercu-cles-envoi');
+  if (zone) { zone.style.display = 'none'; zone.innerHTML = ''; }
+}
+
+/* Microsoft attend la pièce jointe en base64, dans le même appel. */
+function enBase64(blob) {
+  return new Promise((ok, non) => {
+    const lecteur = new FileReader();
+    lecteur.onload = () => ok(String(lecteur.result).split(',')[1]);
+    lecteur.onerror = () => non(new Error('lecture du PDF impossible'));
+    lecteur.readAsDataURL(blob);
+  });
+}
+
+async function envoyerDocumentCles() {
+  const t = pdfClesEnMemoire &&
+    toutesUnitesRentree().find(x => x.unite.id === pdfClesEnMemoire.uniteId);
+  if (!t) return;
+  const l = ligneRentree(t.unite.id);
+
+  const dest = String(l.email || '').trim();
+  const garant = String(l.emailGarant || '').trim();
+  const corps = (document.getElementById('envoi-corps') || {}).value
+    || messageCles(t.unite);
+  const objet = `${t.unite.designation} — montant à verser avant la remise des clés`;
+  const destinataires = [dest, garant].filter(Boolean);
+
+  if (!confirm(`Envoyer à ${destinataires.join(' et ')} ?\n\n` +
+      `Objet : ${objet}\nPièce jointe : ${pdfClesEnMemoire.nom}`)) return;
+
+  const bouton = document.getElementById('envoi-partir');
+  if (bouton) { bouton.disabled = true; bouton.textContent = '⏳ Envoi…'; }
+
+  try {
+    const b64 = await avecDelai(enBase64(pdfClesEnMemoire.blob),
+      20000, 'la lecture de la pièce jointe');
+    const message = {
+      message: {
+        subject: objet,
+        body: { contentType: 'Text', content: corps },
+        toRecipients: (dest ? [dest] : [garant]).map(a => ({ emailAddress: { address: a } })),
+        ccRecipients: (dest && garant) ? [{ emailAddress: { address: garant } }] : [],
+        attachments: [{
+          '@odata.type': '#microsoft.graph.fileAttachment',
+          name: pdfClesEnMemoire.nom,
+          contentType: 'application/pdf',
+          contentBytes: b64,
+        }],
+      },
+      saveToSentItems: true,
+    };
+    const res = await appelGraph('/me/sendMail', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(message),
+    });
+    /* UN ENVOI RÉUSSI REND 202 SANS CORPS. Tout le reste est un échec, et
+       doit être dit : un message qui n'est jamais parti ne se voit pas. */
+    if (!res || !res.ok) {
+      const detail = res && typeof detailErreur === 'function'
+        ? await detailErreur(res) : 'refus de Microsoft';
+      throw new Error((res && (res.status === 401 || res.status === 403))
+        ? detail + ` — déconnecte-toi puis reconnecte-toi : l'autorisation ` +
+          `d'envoi de courrier doit être accordée une fois.`
+        : detail);
+    }
+  } catch (e) {
+    if (bouton) { bouton.disabled = false; bouton.textContent = '✉️ Envoyer'; }
+    return direEnvoi(`Le courriel n'est PAS parti — ` + String((e && e.message) || e));
+  }
+
+  /* MÊME RÈGLE, ET ELLE COMPTE DAVANTAGE ICI : le courriel est PARTI. Ne
+     pas le dire parce que la note n'a pas pu s'écrire ferait croire à un
+     échec, et le document serait envoyé une seconde fois. */
+  l.clesEnvoyeLe = new Date().toISOString();
+  l.clesEnvoyeA = destinataires.join(', ');
+  let traceEnvoi = true;
+  try { await enregistrerRentree(); } catch (e) { traceEnvoi = false; }
+  fermerEnvoiCles();
+  const b = document.getElementById('apercu-cles-envoyer');
+  if (b) { b.disabled = true; b.textContent = '✓ Envoyé'; }
+  annoncerCles(`Document envoyé à ${destinataires.join(' et ')}.` +
+    (traceEnvoi ? '' : `\nATTENTION : le message est bien parti, mais la note ` +
+      `d'envoi n'a pas pu être enregistrée. Ne renvoie pas le document.`));
 }
 
 /* ---- L'aperçu à l'écran ------------------------------------------------
@@ -2984,6 +3244,7 @@ function annoncerCles(message) {
 
 function afficherApercuCles(contenu, nomPdf) {
   fermerApercuCles();
+  pdfClesEnMemoire = null;
   const boite = document.createElement('div');
   boite.id = 'apercu-cles';
   boite.className = 'apercu-cles';
@@ -2991,15 +3252,23 @@ function afficherApercuCles(contenu, nomPdf) {
     <div class="apercu-cles-barre">
       <span class="apercu-cles-nom">${echapperR(nomPdf)}</span>
       <button class="btn-connexion" id="apercu-cles-enregistrer"
-        onclick="enregistrerDocumentCles()">💾 Enregistrer dans OneDrive</button>
+        onclick="enregistrerDocumentCles()">💾 Enregistrer</button>
+      <button class="btn-connexion" id="apercu-cles-envoyer"
+        onclick="ouvrirEnvoiCles()" disabled>✉️ Envoyer</button>
       <button class="btn-connexion" onclick="fermerApercuCles()">Fermer</button>
     </div>
     <iframe id="apercu-cles-cadre" class="apercu-cles-cadre" title="Document"></iframe>
+    <div id="apercu-cles-envoi" class="apercu-cles-envoi" style="display:none;"></div>
     <p class="apercu-cles-aide">📁 <span id="apercu-cles-chemin">Pas encore enregistré —
     relis le document, puis touche « Enregistrer ».</span>
     <br>Un Word et un PDF seront déposés dans le dossier EDLE du locataire.
     C'est le PDF qu'il faut joindre au courriel.</p>`;
   document.body.appendChild(boite);
+  /* L'ÉTAT EST POSÉ EN CODE, PAS SEULEMENT DANS LA BALISE : un attribut
+     peut se perdre à la réécriture, et un bouton d'envoi actif sans pièce
+     jointe enverrait un message vide. */
+  const bEnvoi = document.getElementById('apercu-cles-envoyer');
+  if (bEnvoi) bEnvoi.disabled = true;
   const cadre = document.getElementById('apercu-cles-cadre');
   if (cadre) cadre.srcdoc = contenu;
 }
@@ -3047,13 +3316,13 @@ function ouvrirAideRentree() {
       Le 1<sup>er</sup> janvier 2028, il deviendra « Rentrée 2028 » et repartira
       vide.</p>
 
-      <h3>Les seize colonnes</h3>
+      <h3>Les dix-sept colonnes</h3>
       <p><strong>Deux sont lues dans le mois</strong> et ne se saisissent pas :
       le nom de l'unité et son locataire actuel. Elles suivent le mois affiché
       en haut de l'application.</p>
-      <p><strong>Quatorze se remplissent ici</strong> : le statut, le locataire
-      suivant, son courriel, les acomptes, la date de début du bail, les quatre
-      contrôles et les montants.</p>
+      <p><strong>Quinze se remplissent ici</strong> : le statut, le locataire
+      suivant, ses deux courriels, les acomptes, la date de début du bail, les
+      quatre contrôles et les six montants.</p>
       <p class="ex"><strong>Exemple.</strong> Sur la ligne du studio 6, tu lis
       « STUDIO 6 BICHE » et « Jules Amouri — lu dans le mois ». Tout le reste,
       c'est toi qui le remplis.</p>
@@ -3133,9 +3402,9 @@ function ouvrirAideRentree() {
       rattrapage : l'application inscrira 840 € de garantie encaissée, et la
       confirmation te l'annoncera ainsi — « 400,00 € apportés + 440,00 €
       d'acomptes = 840,00 € ».</p>
-      <p class="ex"><strong>Exemple — garage.</strong> Le garage de Biche est
-      à 60 €. Un acompte de 60 € est accepté et porté sur le premier mois.
-      Un acompte de 200 € est refusé.</p>
+      <p class="ex"><strong>Exemple — garage.</strong> Le garage de Vannes —
+      la seule unité du parc sans garantie — est à 60 €. Un acompte de 60 € est
+      accepté et porté sur le premier mois. Un acompte de 200 € est refusé.</p>
       <p>Si tu vides un montant sur une ligne qui porte déjà un acompte,
       l'application te le signale. <strong>Elle n'efface jamais un
       paiement</strong> : l'acompte reste, mais le bloc se referme jusqu'à ce
@@ -3277,29 +3546,54 @@ function ouvrirAideRentree() {
       ligne en départ, établit le document à envoyer au futur locataire : son
       loyer mensuel, ce qu'il doit verser avant les clés, les acomptes déjà
       versés déduits, et le compte sur lequel payer.</p>
-      <p>Il est <strong>téléchargé sur ton téléphone</strong> — pour le joindre
-      au courriel depuis Envoi Décomptes — et <strong>déposé dans OneDrive</strong>,
-      pour le retrouver des mois plus tard tel qu'il a été envoyé. Le chemin
-      complet s'affiche après l'enregistrement.</p>
+      <p><strong>Trois gestes, dans cet ordre.</strong> Le bouton
+      <strong>affiche</strong> le document, sans rien écrire nulle part : tu le
+      relis d'abord. Puis <strong>« Enregistrer »</strong> dépose un Word et un
+      PDF dans OneDrive. Puis <strong>« Envoyer »</strong>, qui ne s'allume
+      qu'une fois l'enregistrement fait, expédie le PDF au locataire.</p>
       <p>Le compte bancaire dépend de l'immeuble : Havré va sur celui de
       Samadhi, Egmont sur celui de Julien, les cinq autres sur celui de
       Jean-Marc.</p>
       <p><strong>Si une donnée manque</strong> — le nom, le courriel, la date de
       bail, un montant — le document n'est pas établi et l'application dit ce
       qui bloque. Un document incomplet ferait payer une somme fausse.</p>
-      <p><strong>L'application te montre d'abord où elle va écrire</strong>, et
-      te signale ce qui mérite un coup d'œil : un dossier qui va être créé, un
+      <h3>Où le document est rangé</h3>
+      <p>Dans le dossier du locataire, au même endroit que son bail et son état
+      des lieux :</p>
+      <p class="ex">Immobilier 2025-2026 / immeuble / studio / locataire / EDLE</p>
+      <p><strong>L'application te montre où elle va écrire avant de le faire</strong>,
+      et te signale ce qui mérite un coup d'œil : un dossier qui va être créé, un
       nom de dossier différent de celui que tu as tapé, plusieurs dossiers qui
       pourraient convenir. Rien n'est écrit avant que tu aies confirmé.</p>
+      <p>Certains noms diffèrent sans que ce soit un problème, et l'application
+      le dit sans alerter : Petite Guirlande se range dans « PTG », La Fermette
+      dans « Pourcelet Fermette », et tes désignations répètent le nom de
+      l'immeuble là où OneDrive ne le fait pas.</p>
       <p class="ex"><strong>Exemple.</strong> Sur le studio 6 de Biche, tu
-      touches le bouton. L'application demande : « Enregistrer dans BICHE /
-      STUDIO 6 / OLIVIA MEGALI / EDLE ? » en précisant que le dossier de la
-      locataire sera créé. Tu confirmes. Deux fichiers sont déposés, un Word
-      et un PDF, et la ligne garde la date et le chemin. C'est le PDF qu'il
-      faut joindre au courriel.</p>
-      <p class="ex"><strong>Le garage.</strong> Il n'a qu'un loyer : le document
-      ne parle ni de charges, ni de garantie, ni d'assurance. Le locataire ne
-      verse que le premier mois.</p>
+      touches le bouton, tu relis le document, puis tu touches « Enregistrer ».
+      L'application demande : « Enregistrer dans Immobilier 2025-2026 / Biche /
+      Studio 6 / OLIVIA MEGALI / EDLE ? » en précisant que le dossier de la
+      locataire sera créé. Tu confirmes. Un Word et un PDF sont déposés, et la
+      ligne garde la date et le chemin — même dans un mois.</p>
+
+      <h3>Envoyer au locataire</h3>
+      <p>Le bouton <strong>« Envoyer »</strong> expédie le PDF depuis ta boîte
+      Outlook, au locataire, avec le garant en copie. Le message est
+      <strong>impersonnel</strong> : « Madame, Monsieur », sans prénom ni
+      signature — le nom figure déjà dans la pièce jointe.</p>
+      <p>Tu peux retoucher le texte avant qu'il parte. La confirmation rappelle
+      les destinataires et le nom de la pièce jointe.</p>
+      <p>La ligne garde ensuite la date de l'envoi et les adresses. Si tu
+      touches « Envoyer » une seconde fois, l'application te prévient que le
+      document est déjà parti — un second envoi ferait doublon chez le
+      locataire.</p>
+      <p class="ex"><strong>La première fois.</strong> Après la mise à jour, il
+      faut te <strong>déconnecter puis te reconnecter</strong> : Microsoft
+      demande ton accord pour l'envoi de courrier. Sans cet accord, l'envoi est
+      refusé et l'application te le dit.</p>
+      <p class="ex"><strong>Le garage de Vannes.</strong> Il n'a qu'un loyer :
+      le document ne parle ni de charges, ni de garantie, ni d'assurance. Le
+      locataire ne verse que le premier mois.</p>
       <p class="ex"><strong>Un déménagement.</strong> Marc quitte le studio 7
       pour le studio 1. Sa garantie de 400 € et son assurance de 85 € le
       suivent : le document les <strong>déduit</strong> du total et le dit.
@@ -3308,8 +3602,12 @@ function ouvrirAideRentree() {
       n'affiche pas un montant négatif : il annonce « Trop-perçu, à vous
       rembourser » et la somme à lui rendre.</p>
       <p class="ex"><strong>Exemple — blocage.</strong> « STUDIO 6 BICHE :
-      impossible d'établir le document. Il manque son courriel, le montant :
-      garantie. » Remplis ces deux champs et recommence.</p>
+      impossible d'établir le document. Il manque un courriel — locataire ou
+      garant, le montant : garantie. » Remplis ces deux champs et recommence.</p>
+      <p>Si le dépôt ou l'envoi échoue, l'application le dit et ne fait jamais
+      passer un échec pour une réussite. Un PDF qui n'a pas pu être produit ne
+      fait pas disparaître le Word : il est en place, et le message te
+      l'indique.</p>
 
       <h3>Travailler à deux</h3>
       <p>Un bandeau signale qu'une autre personne utilise l'application au même

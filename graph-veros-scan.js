@@ -1,3 +1,4 @@
+// graph-veros-scan.js — v144 — 09/09/2026
 // Gestion Loyers — scan des documents locataires dans OneDrive
 // Détection par NOM de dossier/fichier (pas de lecture du contenu des PDF ici —
 // l'OCR viendra dans une étape séparée pour les documents combinés).
@@ -129,19 +130,81 @@ async function scannerUnite(immeubleId, designation, locataire) {
   const dossiersLocataires = enfantsUnite.filter(e => e.folder || e.remoteItem);
   if (!dossiersLocataires.length) return { erreur: 'Aucun dossier locataire trouvé' };
 
-  // essai de correspondance par nom de locataire : n'importe quel mot significatif
-  // (nom de famille le plus souvent) suffit, pas seulement le premier mot — un prénom
-  // mal orthographié (Vincent/Valentin) ne doit pas empêcher la correspondance sur le nom (ISTASSE)
+  // LES DOCUMENTS D'UN AUTRE LOCATAIRE NE SONT PAS LES SIENS.
+  //
+  // La correspondance se faisait sur N'IMPORTE QUEL mot d'au moins trois
+  // lettres, et — bien pire — quand AUCUN dossier ne correspondait, le scan
+  // repartait sur TOUS les dossiers du studio.
+  //
+  // Un locataire qui vient d'arriver n'a pas encore de dossier à son nom :
+  // le scan lisait donc ceux de tous ses prédécesseurs, et leurs bails,
+  // EDLE et EDLS devenaient les siens. C'est ainsi qu'un étudiant entré en
+  // septembre affichait un état des lieux de SORTIE. Constaté par Gérard le
+  // 09/09/2026, capture à l'appui.
+  //
+  // Trois degrés désormais, du plus sûr au moins sûr :
+  //   1. tous les mots du nom se retrouvent dans le dossier — c'est lui ;
+  //   2. à défaut, un seul mot suffit MAIS un seul dossier doit sortir : on
+  //      l'accepte en le signalant incertain (Vincent/Valentin ISTASSE) ;
+  //   3. rien, ou plusieurs candidats : on le DIT, on ne répond pas avec
+  //      les dossiers des autres.
   let dossiersACheck = dossiersLocataires;
+  let rapprochement = null;
   if (locataire) {
     const motsLoc = normaliserNom(locataire).split(' ').filter(m => m.length >= 3);
-    const correspondance = dossiersLocataires.filter(d => {
-      const nomDossier = normaliserNom(d.name);
-      return motsLoc.some(mot => nomDossier.includes(mot));
-    });
-    if (correspondance.length) dossiersACheck = correspondance;
+    const contient = (d, f) => f(motsLoc, normaliserNom(d.name));
+
+    // UN NOM SANS MOT SIGNIFICATIF NE PERMET DE RIEN TRANCHER.
+    //
+    // Les mots de moins de trois lettres sont écartés. Un locataire dont le
+    // nom n'en compte aucun d'assez long — « Li Wu » — donnait une liste
+    // vide, et la liste vide déclarait le dossier introuvable alors qu'il
+    // pouvait être là. On garde alors tout, en le signalant.
+    if (!motsLoc.length) {
+      rapprochement = { incertain: true, dossier: dossiersLocataires.map(d => d.name).join(', ') };
+      dossiersACheck = dossiersLocataires;
+      return await lireDocuments(dossiersACheck, trouveUnite, rapprochement);
+    }
+
+    const exacts = dossiersLocataires.filter(d =>
+      contient(d, (mots, nom) => mots.every(mot => nom.includes(mot))));
+
+    if (exacts.length === 1) {
+      dossiersACheck = exacts;
+    } else if (exacts.length > 1) {
+      // PLUSIEURS DOSSIERS PORTENT LE MÊME NOM.
+      //
+      // Les lire tous les mêlerait — et l'état des lieux de SORTIE d'un
+      // séjour précédent redeviendrait celui d'aujourd'hui, ce qu'on vient
+      // justement de corriger. On prend le plus récemment créé, et on le
+      // dit. Constaté le 09/09/2026.
+      const parDate = exacts.slice().sort((a, b) => {
+        const ca = a.createdDateTime || '', cb = b.createdDateTime || '';
+        return ca < cb ? 1 : (ca > cb ? -1 : 0);
+      });
+      dossiersACheck = [parDate[0]];
+      rapprochement = { incertain: true, dossier: `${parDate[0].name} (${
+        exacts.length} dossiers de ce nom, le plus récent retenu)` };
+    } else {
+      const partiels = dossiersLocataires.filter(d =>
+        contient(d, (mots, nom) => mots.some(mot => nom.includes(mot))));
+      if (partiels.length === 1) {
+        dossiersACheck = partiels;
+        rapprochement = { incertain: true, dossier: partiels[0].name };
+      } else if (partiels.length > 1) {
+        return { erreur: `Plusieurs dossiers pourraient être ceux de ${locataire} : ` +
+          partiels.map(d => d.name).join(', ') };
+      } else {
+        return { erreur: `Aucun dossier au nom de ${locataire} dans ${nomUnite}` };
+      }
+    }
   }
 
+  return await lireDocuments(dossiersACheck, trouveUnite, rapprochement);
+}
+
+// Lit les fichiers des dossiers retenus et rend les types reconnus.
+async function lireDocuments(dossiersACheck, trouveUnite, rapprochement) {
   const trouves = new Set();
   for (const dossierLoc of dossiersACheck) {
     const refLoc = refDe(dossierLoc, trouveUnite.ref.driveId);
@@ -165,7 +228,9 @@ async function scannerUnite(immeubleId, designation, locataire) {
     }
   }
 
-  return { trouves: [...trouves] };
+  return rapprochement
+    ? { trouves: [...trouves], incertain: true, dossier: rapprochement.dossier }
+    : { trouves: [...trouves] };
 }
 
 // --- Ouverture directe dans OneDrive (immeuble ou recherche locataire/unité) ---

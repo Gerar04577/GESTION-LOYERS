@@ -1,4 +1,4 @@
-// app.js — v142 — 07/09/2026
+// app.js — v143 — 09/09/2026
 // Gestion Loyers — logique applicative
 // Étape 6 : suivi mensuel — un mois en cours créé automatiquement, mois passés
 // consultables ET modifiables (ex. loyer payé en retard, noté après coup).
@@ -1812,6 +1812,9 @@ function statutDocumentsDetail(immeubleId, u) {
   if (!res) return null;
   if (res.erreur) return { erreur: res.erreur };
   const lignes = [];
+  /* Un rapprochement approchant se dit : les documents affichés viennent
+     d'un dossier qui ne porte pas exactement ce nom. */
+  const incertain = res.incertain ? res.dossier : null;
   for (const type of ['bail', 'edle', 'edls', 'avenant', 'samadhi']) {
     let requis = true;
     if (type === 'avenant') requis = avenantRequis(immeubleId, u.locataire, u.designation);
@@ -1820,13 +1823,17 @@ function statutDocumentsDetail(immeubleId, u) {
     const present = res.trouves.includes(type);
     lignes.push({ type, label: LABELS_DOCUMENTS[type], present, requis });
   }
-  return { lignes };
+  return { lignes, incertain };
 }
 
 function rendreStatutDocumentsHTML(statut) {
   if (!statut) return '';
   if (statut.erreur) return `<div class="statut-documents statut-documents-erreur">⚠️ ${statut.erreur}</div>`;
-  return `<div class="statut-documents">${statut.lignes.map(l => {
+  const note = statut.incertain
+    ? `<div class="statut-documents-incertain">⚠️ Documents lus dans le dossier
+       « ${echapperHtml(statut.incertain)} » — le nom ne correspond pas exactement.</div>`
+    : '';
+  return note + `<div class="statut-documents">${statut.lignes.map(l => {
     let icone, classe;
     if (l.present) { icone = '✓'; classe = 'doc-present'; }
     else if (l.requis) { icone = '✗'; classe = 'doc-manquant'; }

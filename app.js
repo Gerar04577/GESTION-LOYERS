@@ -1,4 +1,4 @@
-// app.js — v138 — 07/09/2026
+// app.js — v142 — 07/09/2026
 // Gestion Loyers — logique applicative
 // Étape 6 : suivi mensuel — un mois en cours créé automatiquement, mois passés
 // consultables ET modifiables (ex. loyer payé en retard, noté après coup).
@@ -863,12 +863,88 @@ function champSelect(label, id, uniteId, value, options) {
     </label>`;
 }
 
-function champCheckbox(label, id, uniteId, checked) {
+function champCheckbox(label, id, uniteId, checked, surChangement) {
   return `
     <label class="champ champ-checkbox">
-      <input type="checkbox" id="f-${id}-${uniteId}" ${checked ? 'checked' : ''}>
+      <input type="checkbox" id="f-${id}-${uniteId}" ${checked ? 'checked' : ''}${
+        surChangement ? ` onchange="${surChangement}"` : ''}>
       <span>${label}</span>
     </label>`;
+}
+
+/* ---- LA CASE « INOCCUPÉ » ---------------------------------------------
+
+   Elle ne suspend pas seulement le loyer attendu. Elle remet les montants
+   versés à ZÉRO, efface la date de versement, et fait sortir l'unité du
+   calcul des dettes, du scan des documents et des alertes d'assurance.
+
+   Rien de tout cela ne demandait confirmation : un doigt qui glisse sur
+   cinquante lignes, et le retard d'un locataire disparaissait du total
+   sans laisser de trace. Ajouté le 07/09/2026.
+
+   Deux règles, arrêtées par Gérard :
+
+     — des montants déjà versés INTERDISENT de cocher. On ne demande pas
+       l'autorisation d'effacer un paiement : on refuse, et on dit quoi
+       faire d'abord ;
+     — un locataire présent sans montant versé demande confirmation, en
+       nommant ce qu'on perd ;
+     — une unité vraiment libre ne demande rien : la case ne détruit rien,
+       et une question à chaque fois deviendrait un bruit qu'on ignore. */
+function controlerInoccupe(uniteId, caseACocher) {
+  const trouve = trouverUnite(uniteId);
+  if (!trouve) return;
+  const u = trouve.unite;
+  const mois = (typeof libelleMois === 'function' ? libelleMois(moisAffiche) : moisAffiche);
+
+  /* ON LIT CE QUI EST À L'ÉCRAN, PAS CE QUI EST ENREGISTRÉ.
+
+     Le montant versé saisi il y a dix secondes n'est pas encore dans
+     l'objet : il attend l'enregistrement de la fiche. Le contrôle voyait
+     donc zéro, laissait cocher — et la sauvegarde effaçait la somme qu'on
+     venait de taper. Constaté le 07/09/2026. */
+  const champVerse = document.getElementById(`f-montantsVerses-${uniteId}`);
+  const verses = champVerse && champVerse.value !== ''
+    ? (parseFloat(String(champVerse.value).replace(',', '.')) || 0)
+    : (Number(u.montantsVerses) || 0);
+
+  /* LE LOYER SE CALCULE COMME SI L'UNITÉ ÉTAIT OCCUPÉE.
+
+     calculerLoyerCC rend zéro pour une unité marquée inoccupée. Au moment
+     de DÉCOCHER, l'unité l'est encore : le message annonçait « le loyer de
+     0,00 € sera de nouveau attendu », c'est-à-dire rien. */
+  const loyerReel = (Number(u.loyerBrut) || 0) + (Number(u.charges) || 0)
+    + (Number(u.poubelles) || 0) + (Number(u.internet) || 0);
+
+  if (!caseACocher.checked) {
+    /* On décoche : l'unité redevient due. Plus léger, mais on le dit. */
+    if (u.locataire) {
+      alert(`${u.designation} redevient occupée pour ${mois}.\n\n` +
+        `Le loyer de ${formatMontant(loyerReel)} sera de nouveau attendu, ` +
+        `et l'unité rentrera dans le calcul des dettes.`);
+    }
+    return;
+  }
+
+  if (verses > 0) {
+    caseACocher.checked = false;
+    alert(`Impossible de marquer ${u.designation} inoccupée pour ${mois}.\n\n` +
+      `${formatMontant(verses)} ont été versés sur ce mois. Les effacer ferait ` +
+      `disparaître un paiement réel.\n\n` +
+      `Mets d'abord les montants versés à zéro si le versement était une erreur, ` +
+      `puis recommence.`);
+    return;
+  }
+
+  if (!u.locataire) return;   /* unité libre : rien à perdre */
+
+  const ok = confirm(`⚠️ Marquer ${u.designation} inoccupée pour ${mois} ?\n\n` +
+    `Locataire : ${u.locataire}\n` +
+    `Le loyer attendu de ${formatMontant(loyerReel)} tombe à zéro.\n` +
+    `L'unité sortira du calcul des dettes, du scan des documents et des ` +
+    `alertes d'assurance.\n\n` +
+    `Cela ne vaut que pour ${mois} — les autres mois ne sont pas touchés.`);
+  if (!ok) caseACocher.checked = false;
 }
 
 function formulaireEdition(immeuble, u) {
@@ -881,7 +957,8 @@ function formulaireEdition(immeuble, u) {
       ${champ('Locataire (vide = libre)', 'locataire', u.id, u.locataire)}
       ${champ('Courriel du locataire', 'email', u.id, u.email)}
       ${champ('Courriel du garant', 'emailGarant', u.id, u.emailGarant)}
-      ${champCheckbox('Inoccupé ce mois (suspend le loyer attendu et les alertes)', 'inoccupe', u.id, u.inoccupe)}
+      ${champCheckbox('Inoccupé ce mois (suspend le loyer attendu et les alertes)',
+        'inoccupe', u.id, u.inoccupe, `controlerInoccupe('${u.id}', this)`)}
       ${champ('Loyer brut (€)', 'loyerBrut', u.id, u.loyerBrut, 'number')}
       ${champ('Charges (€)', 'charges', u.id, u.charges, 'number')}
       ${champ('Poubelles (€)', 'poubelles', u.id, u.poubelles, 'number')}

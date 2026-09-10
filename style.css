@@ -1,4 +1,4 @@
-/* style.css — v145 — 09/09/2026 */
+/* style.css — v148 — 09/09/2026 */
 :root {
   --ink: #5f5770;
   --ink-light: #756c8a;
@@ -994,3 +994,6 @@ input[id^="f-montantAssurance-"] {
 .statut-documents-detail p { margin: 4px 0; }
 .statut-documents-detail ul { margin: 4px 0 0; padding-left: 18px; }
 .statut-documents-detail li { margin-bottom: 3px; word-break: break-word; }
+
+/* UN COMPTE DE PAGES QUI NE CORRESPOND PAS : a regarder, pas un manque. */
+.doc-doute { background: #fdf3e0; color: #5e4a15; border: 1px solid #c8891f; }

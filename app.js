@@ -1,4 +1,4 @@
-// app.js — v147 — 09/09/2026
+// app.js — v148 — 09/09/2026
 // Gestion Loyers — logique applicative
 // Étape 6 : suivi mensuel — un mois en cours créé automatiquement, mois passés
 // consultables ET modifiables (ex. loyer payé en retard, noté après coup).
@@ -1101,6 +1101,22 @@ async function lancerScanDocuments() {
     barre.style.width = `${Math.round((fait / unitesAScannaner.length) * 100)}%`;
     try {
       const resultat = await scannerUnite(immeubleId, u.designation, u.locataire);
+      /* L'AVENANT ET LE PRÊT DE MEUBLES NE SONT PAS DES FICHIERS.
+         Ce sont des pages, à la fin du bail et dans l'état des lieux
+         d'entrée. On compte donc les pages des deux fichiers — Microsoft
+         ne donne pas cette information, il faut les télécharger. */
+      if (resultat && !resultat.erreur && resultat.fichiers) {
+        const attendus = attendusPour(immeubleId, u.designation);
+        if (!attendus.bailSeul) {
+          if (resultat.fichiers.bail) {
+            statut.textContent = `Comptage des pages… ${u.designation}`;
+            resultat.pagesBail = await compterPagesDuFichier(resultat.fichiers.bail, resultat.driveId);
+          }
+          if (resultat.fichiers.edle) {
+            resultat.pagesEdle = await compterPagesDuFichier(resultat.fichiers.edle, resultat.driveId);
+          }
+        }
+      }
       resultatsScanDocuments[u.id] = resultat;
     } catch (e) {
       resultatsScanDocuments[u.id] = { erreur: e.message };
@@ -1805,6 +1821,18 @@ function statutDocumentsDetail(immeubleId, u) {
   /* Un rapprochement approchant se dit : les documents affichés viennent
      d'un dossier qui ne porte pas exactement ce nom. */
   const incertain = res.incertain ? res.dossier : null;
+  const attendus = attendusPour(immeubleId, u.designation);
+  /* Trois états au lieu de deux sur l'avenant et le prêt de meubles :
+     le compte attendu, un compte différent qu'il faut aller regarder, et
+     un fichier dont le compte n'est pas sûr. Jamais « manquant » sur la
+     seule foi d'un nombre de pages. */
+  const etatParPages = (pages, attendu) => {
+    if (attendu == null) return 'sansObjet';
+    if (pages == null) return 'inconnu';
+    if (pages === attendu) return 'present';
+    return 'doute';
+  };
+
   for (const type of ['bail', 'edle', 'edls', 'avenant', 'samadhi']) {
     let requis = true;
     if (type === 'avenant') requis = avenantRequis(immeubleId, u.locataire, u.designation);
@@ -1814,10 +1842,40 @@ function statutDocumentsDetail(immeubleId, u) {
        S'il s'en trouve un dans son dossier, on l'affiche — c'est une
        information, pas un manque. */
     if (type === 'edls') requis = false;
-    const present = res.trouves.includes(type);
-    /* L'étiquette dit à QUI la pièce appartient quand ce n'est pas au
-       locataire de la ligne. */
-    lignes.push({ type, label: LABELS_DOCUMENTS[type], present, requis });
+    let present = res.trouves.includes(type);
+    let label = LABELS_DOCUMENTS[type];
+    let etat = null;
+
+    /* LE NOMBRE DE PAGES S'AFFICHE, comme Gérard l'a demandé : « 17 p. »
+       se lit d'un coup d'œil, une pastille sans chiffre ne dit rien. */
+    if (type === 'bail' && res.pagesBail != null) label += ` ${res.pagesBail} p.`;
+    if (type === 'edle' && res.pagesEdle != null) label += ` ${res.pagesEdle} p.`;
+
+    if (type === 'avenant' && !attendus.bailSeul) {
+      if (!attendus.avenant) { requis = false; present = false; label = 'Avenant sans objet'; }
+      else {
+        etat = etatParPages(res.pagesBail, attendus.bail);
+        present = etat === 'present';
+        requis = etat === 'doute';
+        if (etat === 'doute') label = `Avenant ? bail de ${res.pagesBail} p. au lieu de ${attendus.bail}`;
+        else if (etat === 'inconnu') { requis = false; label = 'Avenant — bail illisible'; }
+      }
+    }
+    if (type === 'samadhi' && !attendus.bailSeul) {
+      if (!attendus.samadhi) { requis = false; present = false; label = 'Samadhi sans objet'; }
+      else {
+        etat = etatParPages(res.pagesEdle, attendus.edle);
+        present = etat === 'present';
+        requis = etat === 'doute';
+        if (etat === 'doute') label = `Samadhi ? EDLE de ${res.pagesEdle} p. au lieu de ${attendus.edle}`;
+        else if (etat === 'inconnu') { requis = false; label = 'Samadhi — EDLE illisible'; }
+      }
+    }
+    if ((type === 'avenant' || type === 'samadhi') && attendus.bailSeul) {
+      requis = false; present = false;
+      label = LABELS_DOCUMENTS[type] + ' sans objet';
+    }
+    lignes.push({ type, label, present, requis, etat });
   }
   return { lignes, incertain, preuves: res.preuves || {}, dossiersLus: res.dossiersLus || [] };
 }
@@ -1842,7 +1900,8 @@ function rendreStatutDocumentsHTML(statut) {
     : '';
   return note + detail + `<div class="statut-documents">${statut.lignes.map(l => {
     let icone, classe;
-    if (l.present) { icone = '✓'; classe = 'doc-present'; }
+    if (l.etat === 'doute') { icone = '?'; classe = 'doc-doute'; }
+    else if (l.present) { icone = '✓'; classe = 'doc-present'; }
     else if (l.requis) { icone = '✗'; classe = 'doc-manquant'; }
     else { icone = '—'; classe = 'doc-non-requis'; }
     return `<span class="doc-item ${classe}"><span class="doc-icone">${icone}</span> ${l.label}</span>`;

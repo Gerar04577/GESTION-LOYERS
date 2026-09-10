@@ -1,4 +1,4 @@
-// graph-veros-scan.js — v145 — 09/09/2026
+// graph-veros-scan.js — v148 — 09/09/2026
 // Gestion Loyers — scan des documents locataires dans OneDrive
 // Détection par NOM de dossier/fichier (pas de lecture du contenu des PDF ici —
 // l'OCR viendra dans une étape séparée pour les documents combinés).
@@ -203,6 +203,138 @@ async function scannerUnite(immeubleId, designation, locataire) {
   return await lireDocuments(dossiersACheck, trouveUnite, rapprochement);
 }
 
+/* ---- COMPTER LES PAGES D'UN PDF ---------------------------------------
+
+   Microsoft ne donne pas cette information : les descriptifs de fichiers
+   exposent des facettes pour les photos, l'audio et la vidéo, jamais pour
+   les documents. Il faut donc télécharger le fichier et le compter
+   nous-mêmes. Vérifié le 09/09/2026.
+
+   POURQUOI COMPTER : chez Gérard, l'avenant est une page à la fin du bail
+   et le prêt de meubles une page dans l'état des lieux d'entrée. Aucun
+   fichier ne porte ces noms — le scan les déclarait manquants sur les
+   cinquante unités. Le nombre de pages est le seul indice disponible sans
+   reconnaissance de caractères, les baux étant des images scannées.
+
+   DEUX FAÇONS DE COMPTER, et une règle de prudence :
+
+     1. le compte déclaré dans l'arbre des pages : /Type /Pages ... /Count N
+        — c'est l'autorité du format ;
+     2. le nombre d'objets /Type /Page, qui doit lui correspondre.
+
+   Quand les deux s'accordent, on répond. Quand ils divergent, ou qu'aucun
+   n'est lisible — structure comprimée en flux d'objets —, on rend null :
+   « je ne sais pas ». Un compte faux annoncé comme sûr serait pire que pas
+   de compte du tout. */
+
+function compterPagesPdf(octets) {
+  const vue = new Uint8Array(octets);
+  /* On lit les octets tels quels, sans les interpréter comme du texte :
+     un PDF mêle structure lisible et flux comprimés, et une conversion en
+     UTF-8 abîmerait les seconds. */
+  let texte = '';
+  const MORCEAU = 32768;
+  for (let i = 0; i < vue.length; i += MORCEAU) {
+    texte += String.fromCharCode.apply(null, vue.subarray(i, i + MORCEAU));
+  }
+
+  /* 1. LE COMPTE DÉCLARÉ. Plusieurs objets /Pages peuvent exister — un
+        arbre à plusieurs niveaux —, le plus grand /Count est la racine. */
+  let declare = null;
+  const rePages = /\/Type\s*\/Pages\b/g;
+  let m;
+  while ((m = rePages.exec(texte)) !== null) {
+    /* le /Count du même objet : on regarde autour, dans les deux sens */
+    const debut = Math.max(0, m.index - 400);
+    const autour = texte.slice(debut, m.index + 400);
+    const c = autour.match(/\/Count\s+(\d+)/);
+    if (c) {
+      const n = parseInt(c[1], 10);
+      if (declare === null || n > declare) declare = n;
+    }
+  }
+
+  /* 2. LES OBJETS PAGE. Le \b évite de compter /Pages comme une page. */
+  const objets = (texte.match(/\/Type\s*\/Page[^s]/g) || []).length;
+
+  /* UN PDF PEUT AVOIR ÉTÉ MIS À JOUR : les versions antérieures d'un objet
+     restent dans le fichier, et le comptage d'objets les recompte. Le
+     compte déclaré, lui, reste juste. */
+  if (declare !== null && objets && declare === objets) return declare;
+  if (declare !== null && objets && objets > declare) return declare;
+  if (declare !== null && !objets) return declare;
+  if (declare === null && objets) return objets;
+  return null;   /* on ne sait pas, et on le dira */
+}
+
+/* ---- CE QU'UN DOSSIER DOIT CONTENIR, EN NOMBRE DE PAGES --------------
+
+   Table dictée par Gérard le 09/09/2026, relevée dans ses fichiers.
+
+   L'avenant est la dernière page du bail : dix-sept pages avec, seize
+   sans. Le prêt de meubles est une page de l'état des lieux d'entrée :
+   douze avec, onze sans. Ces deux documents n'existent donc pas comme
+   fichiers séparés, et les chercher par leur nom les déclarait manquants
+   partout.
+
+   Trois unités ne sont pas concernées — RDC de Nimy, RDC commercial de
+   Guirlande, garage de Vannes : bail seul, rien d'autre à contrôler. */
+const PAGES_ATTENDUES = [
+  /* [immeuble, épreuve sur la désignation, bail, EDLE] — le premier qui
+     correspond l'emporte, donc les cas particuliers d'abord. */
+  ['nimy',              /^RDC NIMY$/i,              null, null],
+  ['petite-guirlande',  /^RDC COMMERCIAL/i,         null, null],
+  ['vannes',            /^GARAGE/i,                 null, null],
+
+  ['petite-guirlande',  /^APPART\.?\s*RDC/i,         16,   5],
+  ['petite-guirlande',  /^APPART\.?\s*1ER/i,         17,   11],
+  ['petite-guirlande',  /^DUPLEX/i,                  17,   11],
+  ['petite-guirlande',  /./,                         17,   12],
+
+  ['biche',             /^APPART/i,                  17,   11],
+  ['biche',             /./,                         17,   12],
+
+  ['nimy',              /./,                         17,   12],
+  ['fermette',          /./,                         16,   12],
+  ['havre',             /./,                         16,   11],
+  ['vannes',            /./,                         16,   11],
+  ['egmont',            /./,                         16,   11],
+];
+
+/* Rend ce qu'on attend d'une unité, et ce que le compte impliquera.
+   L'avenant n'est attendu que là où le bail fait dix-sept pages ; le prêt
+   de meubles que là où l'état des lieux en fait douze. Le nombre porte
+   l'information : il n'y a rien à deviner. */
+function attendusPour(immeubleId, designation) {
+  for (const [im, epreuve, bail, edle] of PAGES_ATTENDUES) {
+    if (im === immeubleId && epreuve.test(String(designation || '').trim())) {
+      return { bail, edle, avenant: bail === 17, samadhi: edle === 12,
+               bailSeul: bail === null };
+    }
+  }
+  return { bail: null, edle: null, avenant: false, samadhi: false, bailSeul: true };
+}
+
+/* Le compte d'un fichier, gardé tant que le fichier ne change pas.
+   Télécharger cinquante baux à chaque vérification serait long ; la date
+   de modification suffit à savoir si le compte tient toujours. */
+const _cachePages = {};
+
+async function compterPagesDuFichier(item, driveId) {
+  const cle = `${item.id}|${item.lastModifiedDateTime || ''}|${item.size || ''}`;
+  if (cle in _cachePages) return _cachePages[cle];
+  let pages = null;
+  try {
+    const url = driveId
+      ? `/drives/${driveId}/items/${item.id}/content`
+      : `/me/drive/items/${item.id}/content`;
+    const res = await appelGraph(url, { method: 'GET' });
+    if (res && res.ok) pages = compterPagesPdf(await res.arrayBuffer());
+  } catch (e) { pages = null; }
+  _cachePages[cle] = pages;
+  return pages;
+}
+
 // Lit les fichiers des dossiers retenus et rend les types reconnus.
 //
 // ON GARDE LA TRACE DE CE QUI A JUSTIFIÉ CHAQUE COCHE.
@@ -214,11 +346,13 @@ async function scannerUnite(immeubleId, designation, locataire) {
 async function lireDocuments(dossiersACheck, trouveUnite, rapprochement) {
   const trouves = new Set();
   const preuves = {};
-  const noter = (nomFichier, dossier) => {
-    for (const type of detecterTypesDansNom(nomFichier)) {
+  const fichiers = {};   /* le fichier lui-même, pour en compter les pages */
+  const noter = (item, dossier) => {
+    for (const type of detecterTypesDansNom(item.name)) {
       trouves.add(type);
       if (!preuves[type]) preuves[type] = [];
-      if (preuves[type].length < 3) preuves[type].push(`${dossier} / ${nomFichier}`);
+      if (preuves[type].length < 3) preuves[type].push(`${dossier} / ${item.name}`);
+      if (!fichiers[type]) fichiers[type] = item;
     }
   };
   for (const dossierLoc of dossiersACheck) {
@@ -228,7 +362,7 @@ async function lireDocuments(dossiersACheck, trouveUnite, rapprochement) {
       // seuls les vrais FICHIERS comptent comme preuve — un dossier vide nommé "EDLS"
       // ne doit jamais suffire (il est créé à l'avance et reste vide tant que le locataire est en place)
       if (item.file) {
-        noter(item.name, dossierLoc.name);
+        noter(item, dossierLoc.name);
       }
       if (item.folder || item.remoteItem) {
         const refItem = refDe(item, refLoc.driveId);
@@ -236,15 +370,16 @@ async function lireDocuments(dossiersACheck, trouveUnite, rapprochement) {
         try { sousItems = await enfantsDeRef(refItem); } catch (e) { /* dossier illisible, ignoré */ }
         for (const sousItem of sousItems) {
           if (sousItem.file) {
-            noter(sousItem.name, `${dossierLoc.name} / ${item.name}`);
+            noter(sousItem, `${dossierLoc.name} / ${item.name}`);
           }
         }
       }
     }
   }
 
-  const base = { trouves: [...trouves], preuves,
-                 dossiersLus: dossiersACheck.map(d => d.name) };
+  const base = { trouves: [...trouves], preuves, fichiers,
+                 dossiersLus: dossiersACheck.map(d => d.name),
+                 driveId: (trouveUnite.ref && trouveUnite.ref.driveId) || null };
   return rapprochement
     ? { ...base, incertain: true, dossier: rapprochement.dossier }
     : base;

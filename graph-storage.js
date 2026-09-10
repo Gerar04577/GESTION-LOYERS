@@ -1,4 +1,4 @@
-// graph-storage.js — v136 — 07/09/2026
+// graph-storage.js — v149 — 10/09/2026
 // Gestion Loyers — stockage des données dans OneDrive
 // Un fichier PAR MOIS dans un sous-dossier dédié "GESTION-LOYERS/historique",
 // à l'intérieur du dossier PARTAGÉ "Immobilier 2025-2026" (le même que VéroS).
@@ -96,7 +96,9 @@ async function enfantsDeRef(ref) {
      lastModifiedDateTime, lui, est calculé à partir du contenu et remonte
      dès qu'on rouvre un vieux fichier — il ne sert qu'à départager.
      Ajouté le 07/09/2026. */
-  const champs = 'id,name,folder,file,remoteItem,webUrl,createdDateTime,lastModifiedDateTime';
+  /* size s'ajoute pour la mémoire des comptes de pages : deux fichiers de
+     même date mais de taille différente ne sont pas le même document. */
+  const champs = 'id,name,folder,file,remoteItem,webUrl,createdDateTime,lastModifiedDateTime,size';
   let url;
   if (!ref || !ref.id) {
     url = `/me/drive/root/children?$top=200&$select=${champs}`;

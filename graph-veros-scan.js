@@ -1,4 +1,4 @@
-// graph-veros-scan.js — v148 — 09/09/2026
+// graph-veros-scan.js — v149 — 10/09/2026
 // Gestion Loyers — scan des documents locataires dans OneDrive
 // Détection par NOM de dossier/fichier (pas de lecture du contenu des PDF ici —
 // l'OCR viendra dans une étape séparée pour les documents combinés).
@@ -216,16 +216,26 @@ async function scannerUnite(immeubleId, designation, locataire) {
    cinquante unités. Le nombre de pages est le seul indice disponible sans
    reconnaissance de caractères, les baux étant des images scannées.
 
-   DEUX FAÇONS DE COMPTER, et une règle de prudence :
+   L'ARBRE DES PAGES A PLUSIEURS NIVEAUX.
 
-     1. le compte déclaré dans l'arbre des pages : /Type /Pages ... /Count N
-        — c'est l'autorité du format ;
-     2. le nombre d'objets /Type /Page, qui doit lui correspondre.
+   Ma première version cherchait un /Count « autour » de chaque nœud
+   /Type /Pages, dans une fenêtre de caractères. Sur le bail de Safiya
+   BACHIRI, l'arbre compte quatre nœuds — trois branches de 8, 8 et 1 page,
+   et une racine de 17. La fenêtre attrapait le /Count du voisin : le
+   fichier était annoncé à 8 pages au lieu de 17. Constaté par Gérard le
+   10/09/2026, fichier à l'appui.
 
-   Quand les deux s'accordent, on répond. Quand ils divergent, ou qu'aucun
-   n'est lisible — structure comprimée en flux d'objets —, on rend null :
-   « je ne sais pas ». Un compte faux annoncé comme sûr serait pire que pas
-   de compte du tout. */
+   On lit désormais le /Count DE L'OBJET, délimité par « obj » et
+   « endobj », et l'on retient la RACINE — le seul nœud /Pages sans
+   /Parent. C'est le total du document, par construction du format.
+
+   Trois recours, du plus sûr au moins sûr, et le silence en dernier :
+     1. le /Count de la racine de l'arbre ;
+     2. le plus grand /Count trouvé, si aucune racine n'est identifiable ;
+     3. le nombre d'objets /Type /Page.
+   Si rien n'est lisible — structure comprimée en flux d'objets —, on rend
+   null : « je ne sais pas ». Un compte faux annoncé comme sûr serait pire
+   que pas de compte du tout. */
 
 function compterPagesPdf(octets) {
   const vue = new Uint8Array(octets);
@@ -238,33 +248,36 @@ function compterPagesPdf(octets) {
     texte += String.fromCharCode.apply(null, vue.subarray(i, i + MORCEAU));
   }
 
-  /* 1. LE COMPTE DÉCLARÉ. Plusieurs objets /Pages peuvent exister — un
-        arbre à plusieurs niveaux —, le plus grand /Count est la racine. */
-  let declare = null;
+  /* Le dictionnaire de l'objet qui contient la position donnée. On remonte
+     jusqu'à « obj » et l'on descend jusqu'à « endobj ». */
+  const objetAutour = (pos) => {
+    const debut = texte.lastIndexOf(' obj', pos);
+    const fin = texte.indexOf('endobj', pos);
+    if (debut < 0 || fin < 0) return texte.slice(Math.max(0, pos - 200), pos + 2000);
+    return texte.slice(debut, fin);
+  };
+
+  let racine = null, plusGrand = null;
   const rePages = /\/Type\s*\/Pages\b/g;
   let m;
   while ((m = rePages.exec(texte)) !== null) {
-    /* le /Count du même objet : on regarde autour, dans les deux sens */
-    const debut = Math.max(0, m.index - 400);
-    const autour = texte.slice(debut, m.index + 400);
-    const c = autour.match(/\/Count\s+(\d+)/);
-    if (c) {
-      const n = parseInt(c[1], 10);
-      if (declare === null || n > declare) declare = n;
+    const objet = objetAutour(m.index);
+    const c = objet.match(/\/Count\s+(\d+)/);
+    if (!c) continue;
+    const n = parseInt(c[1], 10);
+    if (plusGrand === null || n > plusGrand) plusGrand = n;
+    /* LA RACINE EST LE NŒUD SANS PARENT. */
+    if (!/\/Parent\b/.test(objet)) {
+      if (racine === null || n > racine) racine = n;
     }
   }
+  if (racine !== null) return racine;
+  if (plusGrand !== null) return plusGrand;
 
-  /* 2. LES OBJETS PAGE. Le \b évite de compter /Pages comme une page. */
+  /* Aucun arbre lisible : on compte les objets page. Le [^s] évite de
+     compter /Pages comme une page. */
   const objets = (texte.match(/\/Type\s*\/Page[^s]/g) || []).length;
-
-  /* UN PDF PEUT AVOIR ÉTÉ MIS À JOUR : les versions antérieures d'un objet
-     restent dans le fichier, et le comptage d'objets les recompte. Le
-     compte déclaré, lui, reste juste. */
-  if (declare !== null && objets && declare === objets) return declare;
-  if (declare !== null && objets && objets > declare) return declare;
-  if (declare !== null && !objets) return declare;
-  if (declare === null && objets) return objets;
-  return null;   /* on ne sait pas, et on le dira */
+  return objets || null;
 }
 
 /* ---- CE QU'UN DOSSIER DOIT CONTENIR, EN NOMBRE DE PAGES --------------
@@ -347,12 +360,24 @@ async function lireDocuments(dossiersACheck, trouveUnite, rapprochement) {
   const trouves = new Set();
   const preuves = {};
   const fichiers = {};   /* le fichier lui-même, pour en compter les pages */
+  /* PLUSIEURS FICHIERS DU MÊME TYPE DANS UN DOSSIER.
+   *
+   * Le dossier « Bail » de Safiya BACHIRI contient deux baux : celui de
+   * 2025-2026 et celui de 2026-2027. Je prenais LE PREMIER RENCONTRÉ,
+   * dans l'ordre où Microsoft les renvoie — c'est-à-dire au hasard. Le
+   * bail de l'an dernier était compté à la place du bail en cours.
+   *
+   * On retient le plus récemment CRÉÉ : c'est la date qui marque l'arrivée
+   * du document, et elle ne bouge plus. La date de modification ne sert
+   * qu'à départager. Constaté par Gérard le 10/09/2026. */
+  const dateDe = (it) => String(it.createdDateTime || it.lastModifiedDateTime || '');
   const noter = (item, dossier) => {
     for (const type of detecterTypesDansNom(item.name)) {
       trouves.add(type);
       if (!preuves[type]) preuves[type] = [];
-      if (preuves[type].length < 3) preuves[type].push(`${dossier} / ${item.name}`);
-      if (!fichiers[type]) fichiers[type] = item;
+      if (preuves[type].length < 4) preuves[type].push(`${dossier} / ${item.name}`);
+      const ancien = fichiers[type];
+      if (!ancien || dateDe(item) > dateDe(ancien)) fichiers[type] = item;
     }
   };
   for (const dossierLoc of dossiersACheck) {
@@ -377,7 +402,13 @@ async function lireDocuments(dossiersACheck, trouveUnite, rapprochement) {
     }
   }
 
-  const base = { trouves: [...trouves], preuves, fichiers,
+  /* Quand plusieurs fichiers portaient le même type, on dit lequel a servi
+     au comptage : sans cela, un compte inattendu reste inexplicable. */
+  const retenus = {};
+  for (const type of Object.keys(fichiers)) {
+    if ((preuves[type] || []).length > 1) retenus[type] = fichiers[type].name;
+  }
+  const base = { trouves: [...trouves], preuves, fichiers, retenus,
                  dossiersLus: dossiersACheck.map(d => d.name),
                  driveId: (trouveUnite.ref && trouveUnite.ref.driveId) || null };
   return rapprochement

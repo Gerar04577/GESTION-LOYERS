@@ -1,4 +1,4 @@
-// app.js — v148 — 09/09/2026
+// app.js — v149 — 10/09/2026
 // Gestion Loyers — logique applicative
 // Étape 6 : suivi mensuel — un mois en cours créé automatiquement, mois passés
 // consultables ET modifiables (ex. loyer payé en retard, noté après coup).
@@ -1877,7 +1877,8 @@ function statutDocumentsDetail(immeubleId, u) {
     }
     lignes.push({ type, label, present, requis, etat });
   }
-  return { lignes, incertain, preuves: res.preuves || {}, dossiersLus: res.dossiersLus || [] };
+  return { lignes, incertain, preuves: res.preuves || {},
+           dossiersLus: res.dossiersLus || [], retenus: res.retenus || {} };
 }
 
 function rendreStatutDocumentsHTML(statut) {
@@ -1893,9 +1894,15 @@ function rendreStatutDocumentsHTML(statut) {
   const detail = preuves.length
     ? `<details class="statut-documents-detail"><summary>D'où viennent ces réponses ?</summary>
        <p>Dossier lu : ${echapperHtml((statut.dossiersLus || []).join(', ') || '—')}</p>
-       <ul>${preuves.map(([type, fichiers]) =>
-         `<li><b>${LABELS_DOCUMENTS[type] || type}</b> : ${
-           fichiers.map(f => echapperHtml(f)).join('<br>')}</li>`).join('')}</ul>
+       <ul>${preuves.map(([type, fichiers]) => {
+         const retenu = (statut.retenus || {})[type];
+         return `<li><b>${LABELS_DOCUMENTS[type] || type}</b> : ${
+           fichiers.map(f => {
+             const nom = f.split(' / ').slice(-1)[0];
+             return retenu && nom === retenu
+               ? `<b>${echapperHtml(f)} ← compté</b>` : echapperHtml(f);
+           }).join('<br>')}</li>`;
+       }).join('')}</ul>
        </details>`
     : '';
   return note + detail + `<div class="statut-documents">${statut.lignes.map(l => {

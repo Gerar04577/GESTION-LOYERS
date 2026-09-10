@@ -1,4 +1,4 @@
-// graph-veros-scan.js — v144 — 09/09/2026
+// graph-veros-scan.js — v145 — 09/09/2026
 // Gestion Loyers — scan des documents locataires dans OneDrive
 // Détection par NOM de dossier/fichier (pas de lecture du contenu des PDF ici —
 // l'OCR viendra dans une étape séparée pour les documents combinés).
@@ -204,8 +204,23 @@ async function scannerUnite(immeubleId, designation, locataire) {
 }
 
 // Lit les fichiers des dossiers retenus et rend les types reconnus.
+//
+// ON GARDE LA TRACE DE CE QUI A JUSTIFIÉ CHAQUE COCHE.
+//
+// Deux fois de suite, une coche verte inattendue a coûté une soirée à
+// chercher si le code était fautif ou si le fichier existait vraiment.
+// L'écran peut désormais montrer le dossier lu et le nom des fichiers
+// reconnus : la question se tranche d'un coup d'œil. Ajouté le 09/09/2026.
 async function lireDocuments(dossiersACheck, trouveUnite, rapprochement) {
   const trouves = new Set();
+  const preuves = {};
+  const noter = (nomFichier, dossier) => {
+    for (const type of detecterTypesDansNom(nomFichier)) {
+      trouves.add(type);
+      if (!preuves[type]) preuves[type] = [];
+      if (preuves[type].length < 3) preuves[type].push(`${dossier} / ${nomFichier}`);
+    }
+  };
   for (const dossierLoc of dossiersACheck) {
     const refLoc = refDe(dossierLoc, trouveUnite.ref.driveId);
     const enfantsLoc = await enfantsDeRef(refLoc);
@@ -213,7 +228,7 @@ async function lireDocuments(dossiersACheck, trouveUnite, rapprochement) {
       // seuls les vrais FICHIERS comptent comme preuve — un dossier vide nommé "EDLS"
       // ne doit jamais suffire (il est créé à l'avance et reste vide tant que le locataire est en place)
       if (item.file) {
-        for (const type of detecterTypesDansNom(item.name)) trouves.add(type);
+        noter(item.name, dossierLoc.name);
       }
       if (item.folder || item.remoteItem) {
         const refItem = refDe(item, refLoc.driveId);
@@ -221,16 +236,18 @@ async function lireDocuments(dossiersACheck, trouveUnite, rapprochement) {
         try { sousItems = await enfantsDeRef(refItem); } catch (e) { /* dossier illisible, ignoré */ }
         for (const sousItem of sousItems) {
           if (sousItem.file) {
-            for (const type of detecterTypesDansNom(sousItem.name)) trouves.add(type);
+            noter(sousItem.name, `${dossierLoc.name} / ${item.name}`);
           }
         }
       }
     }
   }
 
+  const base = { trouves: [...trouves], preuves,
+                 dossiersLus: dossiersACheck.map(d => d.name) };
   return rapprochement
-    ? { trouves: [...trouves], incertain: true, dossier: rapprochement.dossier }
-    : { trouves: [...trouves] };
+    ? { ...base, incertain: true, dossier: rapprochement.dossier }
+    : base;
 }
 
 // --- Ouverture directe dans OneDrive (immeuble ou recherche locataire/unité) ---

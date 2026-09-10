@@ -1,4 +1,4 @@
-// app.js — v143 — 09/09/2026
+// app.js — v147 — 09/09/2026
 // Gestion Loyers — logique applicative
 // Étape 6 : suivi mensuel — un mois en cours créé automatiquement, mois passés
 // consultables ET modifiables (ex. loyer payé en retard, noté après coup).
@@ -1058,7 +1058,6 @@ function formulaireEdition(immeuble, u) {
 // Vue entièrement séparée de la liste des loyers, dédiée aux documents.
 
 let resultatsScanDocuments = {}; // { uniteId: {trouves: [...]} ou {erreur: ...} }
-let changementLocataireParUnite = {}; // { uniteId: true si locataire différent du mois précédent }
 let filtreVueDocuments = '';
 
 async function lancerScanDocuments() {
@@ -1075,17 +1074,20 @@ async function lancerScanDocuments() {
   barreConteneur.style.display = 'block';
   barre.style.width = '0%';
 
-  // charger le mois précédent pour repérer les changements de locataire (ancien locataire = qui doit avoir l'EDLS)
-  let ancienLocatairesParUnite = {};
-  try {
-    const moisPrec = moisPrecedent(moisAffiche);
-    const donneesPrec = await chargerMoisOneDrive(moisPrec);
-    if (donneesPrec) {
-      for (const b of donneesPrec.immeubles) {
-        for (const u of b.unites) ancienLocatairesParUnite[u.id] = u.locataire;
-      }
-    }
-  } catch (e) { /* pas de mois précédent disponible, on continue sans */ }
+  /* ON NE VÉRIFIE QUE LE LOCATAIRE EN PLACE.
+   *
+   * L'écran chargeait le mois précédent, puis relançait un second scan sur
+   * le SORTANT pour retrouver son état des lieux de sortie — et poussait le
+   * résultat dans les documents de l'ARRIVANT, où il s'affichait comme une
+   * pièce de lui. Eva SMETS montrait ainsi un ✓ EDLS alors que son dossier
+   * n'en contient aucun.
+   *
+   * Décision de Gérard, 09/09/2026 : aucune vérification sur les anciens
+   * locataires. L'écran ne répond que sur les 48 unités occupées et sur la
+   * personne qui s'y trouve aujourd'hui.
+   *
+   * Effet secondaire bienvenu : plus de lecture du mois précédent, et un
+   * seul aller-retour vers OneDrive par unité au lieu de deux. */
 
   const unitesAScannaner = [];
   for (const b of appData.immeubles) {
@@ -1099,18 +1101,6 @@ async function lancerScanDocuments() {
     barre.style.width = `${Math.round((fait / unitesAScannaner.length) * 100)}%`;
     try {
       const resultat = await scannerUnite(immeubleId, u.designation, u.locataire);
-      // si le locataire a changé depuis le mois précédent, l'EDLS attendu est celui de L'ANCIEN locataire
-      const ancien = ancienLocatairesParUnite[u.id];
-      const changement = !!(ancien && ancien !== u.locataire);
-      changementLocataireParUnite[u.id] = changement;
-      if (changement && resultat && !resultat.erreur && !resultat.trouves.includes('edls')) {
-        try {
-          const resultatAncien = await scannerUnite(immeubleId, u.designation, ancien);
-          if (resultatAncien && !resultatAncien.erreur && resultatAncien.trouves.includes('edls')) {
-            resultat.trouves.push('edls');
-          }
-        } catch (e) { /* ancien locataire introuvable dans OneDrive, tant pis */ }
-      }
       resultatsScanDocuments[u.id] = resultat;
     } catch (e) {
       resultatsScanDocuments[u.id] = { erreur: e.message };
@@ -1819,11 +1809,17 @@ function statutDocumentsDetail(immeubleId, u) {
     let requis = true;
     if (type === 'avenant') requis = avenantRequis(immeubleId, u.locataire, u.designation);
     if (type === 'samadhi') requis = samadhiRequis(immeubleId, u.designation);
-    if (type === 'edls') requis = !!changementLocataireParUnite[u.id]; // rouge seulement si changement de locataire détecté
+    /* L'ÉTAT DES LIEUX DE SORTIE N'EST JAMAIS ATTENDU DU LOCATAIRE EN
+       PLACE : il vient d'entrer. Jamais de croix rouge sur cette colonne.
+       S'il s'en trouve un dans son dossier, on l'affiche — c'est une
+       information, pas un manque. */
+    if (type === 'edls') requis = false;
     const present = res.trouves.includes(type);
+    /* L'étiquette dit à QUI la pièce appartient quand ce n'est pas au
+       locataire de la ligne. */
     lignes.push({ type, label: LABELS_DOCUMENTS[type], present, requis });
   }
-  return { lignes, incertain };
+  return { lignes, incertain, preuves: res.preuves || {}, dossiersLus: res.dossiersLus || [] };
 }
 
 function rendreStatutDocumentsHTML(statut) {
@@ -1833,7 +1829,18 @@ function rendreStatutDocumentsHTML(statut) {
     ? `<div class="statut-documents-incertain">⚠️ Documents lus dans le dossier
        « ${echapperHtml(statut.incertain)} » — le nom ne correspond pas exactement.</div>`
     : '';
-  return note + `<div class="statut-documents">${statut.lignes.map(l => {
+  /* CE QUI A JUSTIFIÉ CHAQUE COCHE, sur demande. Une coche inattendue se
+     tranche en la regardant, plutôt qu'en cherchant dans le code. */
+  const preuves = Object.entries(statut.preuves || {});
+  const detail = preuves.length
+    ? `<details class="statut-documents-detail"><summary>D'où viennent ces réponses ?</summary>
+       <p>Dossier lu : ${echapperHtml((statut.dossiersLus || []).join(', ') || '—')}</p>
+       <ul>${preuves.map(([type, fichiers]) =>
+         `<li><b>${LABELS_DOCUMENTS[type] || type}</b> : ${
+           fichiers.map(f => echapperHtml(f)).join('<br>')}</li>`).join('')}</ul>
+       </details>`
+    : '';
+  return note + detail + `<div class="statut-documents">${statut.lignes.map(l => {
     let icone, classe;
     if (l.present) { icone = '✓'; classe = 'doc-present'; }
     else if (l.requis) { icone = '✗'; classe = 'doc-manquant'; }
